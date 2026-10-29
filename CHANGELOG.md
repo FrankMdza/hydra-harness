@@ -64,8 +64,18 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   - Build 370 measured bubblewrap in Docker. Launches under `standard` recorded
     `sandbox_kind: bubblewrap`, their deny paths held, and git status, add, diff and log worked
     inside. The git failure of the first launch came from Hydra's provider probe, which runs
-    unwrapped on both platforms; build 375 wraps it. `--new-session` gives the provider its own process group, so build 372's kill
-    misses it on Linux. The home plugin roots are now created before compose.
+    unwrapped on both platforms. `--new-session` gives the provider its own process group, so
+    build 372's kill misses it on Linux. The home plugin roots are now created before compose.
+- 2026-10-28.
+  - The provider probes run inside the run's own seatbelt or bwrap profile: `claude`'s skill
+    probe and `agy`'s `/skills` and `/hooks`. Before, a committed `.claude/settings.local.json`
+    ran its `SessionStart` and `UserPromptSubmit` hooks under no wrapper. A launch now compiles
+    the gate before the probe, so every handoff refusal's line 0 carries `scopes`. Build 375,
+    run `01a1859e`.
+  - A bubblewrap launch passes `--unshare-pid`, so a `setsid` process a run leaves behind dies
+    when bwrap's command exits, measured in Docker. Docker now needs
+    `--security-opt systempaths=unconfined` for bwrap to mount `/proc`. Build 376, run
+    `01a1859f`.
 
 ## 0.3.0, 2026-10-15
 

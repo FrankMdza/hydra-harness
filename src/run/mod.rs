@@ -605,10 +605,11 @@ fn compose_line_zero(
     // writes the same line 0 a spawned one would, because contract 8.3 wants the
     // attempt on disk in full.
     //
-    // **`scopes` is absent until a gate is compiled**, which is below the two
-    // pre-flight refusals. A refused run resolved no scope, so contract 5.1's
-    // rule applies: the key is absent rather than filled with what the compile
-    // would have produced had it run.
+    // **`scopes` is absent until a gate is compiled.** Since build ticket 375
+    // the compile comes before the probe and so before every handoff refusal,
+    // which carry it. A failure before the compile resolved no scope, so
+    // contract 5.1's rule applies there: the key is absent rather than filled
+    // with what the compile would have produced had it run.
     let (scopes, gate_sha, sandbox) = match spawn {
         Some(spawn) => (
             Some(&spawn.scopes),
@@ -676,7 +677,46 @@ fn phase_handoff(
                 .map(|w| std::path::Path::new(&w.path)),
         )?),
     };
-    inject_into_checkout(machine, worktree, mcp_file.as_deref(), recording)?;
+    let linked = link_into_checkout(machine, worktree, recording)?;
+
+    // Build ticket 375: the gate and the profile are written before the probe,
+    // because the probe runs the provider's binary and has to run inside the
+    // wrapper the run gets. The bubblewrap profile reads the gate off disk, so
+    // the whole spawn config moves and not the profile alone. Every refusal
+    // below therefore comes after a compiled gate, and its line 0 carries the
+    // scopes that gate resolved.
+    let spawn = write_spawn_config(
+        &machine.reserved.layout,
+        &machine.reserved.run_id,
+        &machine.preflight.policies,
+        machine.request.provider,
+        &machine.request.policy,
+        worktree
+            .worktree_ref
+            .as_ref()
+            .map(|w| std::path::Path::new(&w.path)),
+        machine.preflight.repo.as_deref(),
+        recording.injected.as_ref().map(|i| i.store_sha.as_str()),
+        machine.request.floor_lifted,
+    )?;
+    if let Some(linked) = &linked
+        && let Err(err) = probe_checkout(
+            machine,
+            worktree,
+            linked,
+            mcp_file.as_deref(),
+            spawn.sandbox_profile.as_deref(),
+            recording,
+        )
+    {
+        return Ok(PhaseHandoff::Done(Err(recording.fail(
+            machine,
+            worktree,
+            err,
+            true,
+            Some(&spawn),
+        ))));
+    }
 
     // 6.1 item 5. A hit fails the run as its own outcome, and the record is the
     // whole of what the caller gets back. It is read before the pre-flight below
@@ -690,7 +730,7 @@ fn phase_handoff(
         return Ok(refuse_handoff(
             machine,
             worktree,
-            &compose_line_zero(recording.parts(machine, worktree), None)?,
+            &compose_line_zero(recording.parts(machine, worktree), Some(&spawn))?,
             crate::record::Refusal::SkillCollision,
             remediation,
         ));
@@ -731,9 +771,7 @@ fn phase_handoff(
             .and_then(|injected| injected.mcp_resolved.clone()),
     };
     recording.mcp_resolved = mcp_resolved.clone();
-    // No gate is compiled yet, so the two refusals below write a line 0 with no
-    // `scopes` on it. The launched path recomposes it after `write_spawn_config`.
-    let refused_line_zero = compose_line_zero(recording.parts(machine, worktree), None)?;
+    let refused_line_zero = compose_line_zero(recording.parts(machine, worktree), Some(&spawn))?;
     if let Some(done) = handoff_preflight_refusals(
         machine,
         worktree,
@@ -745,23 +783,8 @@ fn phase_handoff(
         return Ok(done);
     }
 
-    let spawn = write_spawn_config(
-        &machine.reserved.layout,
-        &machine.reserved.run_id,
-        &machine.preflight.policies,
-        machine.request.provider,
-        &machine.request.policy,
-        worktree
-            .worktree_ref
-            .as_ref()
-            .map(|w| std::path::Path::new(&w.path)),
-        machine.preflight.repo.as_deref(),
-        recording.injected.as_ref().map(|i| i.store_sha.as_str()),
-        machine.request.floor_lifted,
-    )?;
-    // Line 0 again, now that the gate has been compiled and the paths it
-    // resolved are known. Everything above it wrote `refused_line_zero`, which
-    // carries no `scopes` because no gate existed to name any.
+    // Line 0 again, after the pre-flight refusals had their chance to change
+    // what the recording holds.
     let line_zero = compose_line_zero(recording.parts(machine, worktree), Some(&spawn))?;
     Ok(PhaseHandoff::Ready(HandoffReady {
         mcp_file,
@@ -782,27 +805,52 @@ fn phase_handoff(
 ///
 /// The answer lands in `recording` even when a step fails partway, so the
 /// failure record names what reached the checkout; see [`inject_skills`].
-fn inject_into_checkout(
+///
+/// `None` means nothing was linked, and then nothing is probed either.
+fn link_into_checkout(
     machine: &MachineReady,
     worktree: &WorktreeReady,
+    recording: &mut PostWorktree,
+) -> Result<Option<crate::skills::Injected>> {
+    let Some(worktree_ref) = &worktree.worktree_ref else {
+        return Ok(None);
+    };
+    if machine.request.policy == "judge" {
+        return Ok(None);
+    }
+    link_skills(
+        &machine.reserved.layout,
+        &machine.reserved.run_id,
+        machine.request.provider,
+        std::path::Path::new(&worktree_ref.path),
+        &mut recording.injected,
+    )
+    .map(Some)
+}
+
+/// Asks the provider what it resolved for the checkout [`link_into_checkout`]
+/// linked, inside the run's own profile. Build ticket 375 moved this after
+/// `write_spawn_config`, so the probe and the run see the same wrapper.
+fn probe_checkout(
+    machine: &MachineReady,
+    worktree: &WorktreeReady,
+    linked: &crate::skills::Injected,
     mcp_file: Option<&std::path::Path>,
+    profile: Option<&std::path::Path>,
     recording: &mut PostWorktree,
 ) -> Result<()> {
     let Some(worktree_ref) = &worktree.worktree_ref else {
         return Ok(());
     };
-    if machine.request.policy == "judge" {
-        return Ok(());
-    }
-    inject_skills(
-        &machine.reserved.layout,
-        &machine.reserved.run_id,
+    probe_skills(
         machine.request.provider,
         std::path::Path::new(&worktree_ref.path),
         crate::mcp::Probe {
             policy: &machine.request.policy,
             config: mcp_file,
         },
+        profile,
+        linked,
         &mut recording.injected,
         machine.reserved.quiet,
     )
@@ -835,13 +883,14 @@ fn agy_gate_mounted(
         Some(w) => PathBuf::from(&w.path),
         None => anyhow::bail!("an agy run needs a checkout and this one has none"),
     };
-    let mounted = agy::hooks_mounted(&checkout).with_context(|| {
-        format!(
-            "asking agy which hooks it loaded for {}, which is what proves the gate is \
+    let mounted = agy::hooks_mounted(&checkout, handoff.spawn.sandbox_profile.as_deref())
+        .with_context(|| {
+            format!(
+                "asking agy which hooks it loaded for {}, which is what proves the gate is \
              in front of the run",
-            checkout.display()
-        )
-    })?;
+                checkout.display()
+            )
+        })?;
     if agy::gate_is_mounted(&mounted, &handoff.spawn.hook_config) {
         Ok(())
     } else {
@@ -1205,6 +1254,22 @@ pub(crate) fn inject_skills(
     slot: &mut Option<InjectedSkills>,
     quiet: bool,
 ) -> Result<()> {
+    let injected = link_skills(layout, run_id, provider, worktree, slot)?;
+    probe_skills(provider, worktree, mcp, None, &injected, slot, quiet)
+}
+
+/// The first half of [`inject_skills`]: pin, snapshot and link, with no process.
+///
+/// Split out for build ticket 375. The run's profile scopes the snapshot by the
+/// sha pinned here, so the profile can only be written after this half, and the
+/// probe in [`probe_skills`] has to run inside that profile.
+pub(crate) fn link_skills(
+    layout: &Layout,
+    run_id: &str,
+    provider: Provider,
+    worktree: &std::path::Path,
+    slot: &mut Option<InjectedSkills>,
+) -> Result<crate::skills::Injected> {
     let store = crate::skills::Store::open(layout)?;
     let store_sha = store.pin(run_id)?;
     let snapshot = store.snapshot(layout, &store_sha)?;
@@ -1222,8 +1287,26 @@ pub(crate) fn inject_skills(
         }
     };
     *slot = Some(partial(&injected));
+    Ok(injected)
+}
 
-    let resolved = match provider.resolve(worktree, mcp) {
+/// The second half of [`inject_skills`]: ask the provider what it resolved and
+/// run the collision check against the answer.
+///
+/// `profile` is the run's own launch wrapper. The probe runs the provider's
+/// binary with the human's settings, so it runs inside the same profile the run
+/// will, and `None` only where nothing wraps the run either.
+pub(crate) fn probe_skills(
+    provider: Provider,
+    worktree: &std::path::Path,
+    mcp: crate::mcp::Probe<'_>,
+    profile: Option<&std::path::Path>,
+    injected: &crate::skills::Injected,
+    slot: &mut Option<InjectedSkills>,
+    quiet: bool,
+) -> Result<()> {
+    let store_sha = injected.store_sha.clone();
+    let resolved = match provider.resolve(worktree, mcp, profile) {
         Ok(resolved) => resolved,
         Err(err) => {
             if !quiet {
@@ -1247,7 +1330,7 @@ pub(crate) fn inject_skills(
     let project =
         crate::skills::index::Index::project_scope_without(&injected.root, &injected.linked)?;
     let collisions = crate::skills::collision::check(
-        &injected,
+        injected,
         provider,
         &home,
         &user,
@@ -1256,7 +1339,7 @@ pub(crate) fn inject_skills(
     );
 
     *slot = Some(InjectedSkills {
-        record: crate::skills::record(&injected, resolved.skills.as_deref()),
+        record: crate::skills::record(injected, resolved.skills.as_deref()),
         collisions,
         store_sha,
         mcp_resolved: resolved.mcp,

@@ -9,9 +9,9 @@ two pty tests and seven bit-exact CPython arithmetic tests whose fixtures were r
 Mac. Since build 318b a Linux launch runs under bubblewrap when `bwrap` is on `PATH` and user
 namespaces are open. Build 370 measured such launches in Docker: they recorded
 `sandbox_kind: bubblewrap`, their deny paths held, and git status, add, diff and log worked inside.
-It also found that the provider probes Hydra runs before a launch have no wrapper on either
-platform, which build 375 fixes. Until then, and until 376 kills what a Linux run leaves behind,
-recorded runs stay on the Mac (map 119, `docs/roadmap.md`).
+Since builds 375 and 376 the provider probes run inside the same wrapper, and a run's leftover
+processes die with bwrap's pid namespace. Every Linux launch so far used a stand-in provider, so
+recorded runs stay on the Mac until a real one is measured there (map 119, `docs/roadmap.md`).
 
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
 

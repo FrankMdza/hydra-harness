@@ -690,6 +690,7 @@ fn compose_bwrap_for_launch(
         "--dev-bind".to_string(),
         "/".to_string(),
         "/".to_string(),
+        "--unshare-pid".to_string(),
         "--proc".to_string(),
         "/proc".to_string(),
         "--die-with-parent".to_string(),
@@ -1526,11 +1527,12 @@ mod tests {
                         prepare_bwrap_fixture(set, &spawn);
                         let args = compose_bwrap(set, &spawn).unwrap();
                         assert_eq!(
-                            args[..7],
+                            args[..8],
                             [
                                 "--dev-bind",
                                 "/",
                                 "/",
+                                "--unshare-pid",
                                 "--proc",
                                 "/proc",
                                 "--die-with-parent",

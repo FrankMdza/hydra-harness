@@ -456,14 +456,22 @@ const PROBE_MODEL: &str = "hydra-skill-preflight-not-a-model";
 /// root and the transcript, and the probe has to be looking at the same machine
 /// the run will.
 ///
-/// **The probe runs the human's own `UserPromptSubmit` hooks**, because it is an
-/// ordinary `claude` invocation with the user's settings. That is the same
-/// exposure a recorded run already has and is worth knowing about here, where
-/// nothing was asked of a model.
-pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Resolved> {
+/// **The probe runs the human's own hooks**, because it is an ordinary `claude`
+/// invocation with the user's settings and the repository's. Build 370 measured
+/// it on 2.1.281: with a committed `.claude/settings.local.json`, the probe argv
+/// ran both its `SessionStart` and its `UserPromptSubmit` hooks. Until build
+/// ticket 375 the probe ran them under nothing while the run ran them under its
+/// wrapper, so the exposure was wider than the run's. Now `profile` is the run's
+/// own, and the probe runs inside it. The transcript still lands, because every
+/// `claude` profile carves out `~/.claude/projects/<slug>/` for the run.
+pub fn resolve(
+    worktree: &Path,
+    mcp: crate::mcp::Probe<'_>,
+    profile: Option<&Path>,
+) -> anyhow::Result<Resolved> {
     let env = crate::env::ChildEnv::build(crate::provider::Provider::Claude)?;
     let home = crate::env::real_home()?;
-    resolve_in(worktree, mcp, &home, &env)
+    resolve_in(worktree, mcp, &home, &env, profile)
 }
 
 /// [`resolve`], with the home and the environment named rather than discovered.
@@ -478,20 +486,21 @@ pub fn resolve(worktree: &Path, mcp: crate::mcp::Probe<'_>) -> anyhow::Result<Re
 ///
 /// The two arguments travel together on purpose. A transcript is read out of the
 /// `HOME` the child was given, so a caller that moved one and not the other would
-/// look for the file in the wrong place.
+/// look for the file in the wrong place. `profile` is the run's wrapper, and the
+/// drift test passes `None` because it measures the binary rather than a run.
 pub fn resolve_in(
     worktree: &Path,
     mcp: crate::mcp::Probe<'_>,
     home: &Path,
     env: &crate::env::ChildEnv,
+    profile: Option<&Path>,
 ) -> anyhow::Result<Resolved> {
     use anyhow::Context;
 
     let session = uuid::Uuid::now_v7().to_string();
     let flags = mcp_flags(mcp);
 
-    let out = std::process::Command::new("claude")
-        .args(probe_argv(&session, mcp))
+    let out = crate::provider::probe_command("claude", &probe_argv(&session, mcp), profile)
         .current_dir(worktree)
         .env_clear()
         .envs(env.vars())

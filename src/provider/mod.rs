@@ -233,15 +233,19 @@ impl Provider {
     ///
     /// Free on `claude` and on `agy`, paid on `cursor-agent`. See
     /// [`claude::resolve`] for what free costs in wall-clock time.
+    ///
+    /// `profile` is the run's launch wrapper, and the probe runs inside it; see
+    /// [`probe_command`]. `cursor-agent` and `codex` spawn nothing here.
     pub fn resolve(
         self,
         worktree: &std::path::Path,
         mcp: crate::mcp::Probe<'_>,
+        profile: Option<&Path>,
     ) -> Result<Resolved> {
         match self {
-            Provider::Claude => claude::resolve(worktree, mcp),
+            Provider::Claude => claude::resolve(worktree, mcp, profile),
             Provider::CursorAgent => cursor::resolve(worktree, mcp),
-            Provider::Agy => agy::resolve(worktree, mcp),
+            Provider::Agy => agy::resolve(worktree, mcp, profile),
             Provider::Codex => codex::resolve(worktree, mcp),
         }
     }
@@ -277,6 +281,28 @@ impl Provider {
             Provider::Codex => codex::observe(raw),
         }
     }
+}
+
+/// The command for one provider invocation a launch makes before or beside the
+/// run, inside the run's own profile when there is one.
+///
+/// Build ticket 375. Until then the probes ran bare: a `claude` probe ran the
+/// repository's committed hooks under no seatbelt, and a stub that ran git from
+/// the probe committed onto the run's branch in the parent's `refs/heads/`,
+/// measured by build 370. `profile` is `None` only where
+/// [`crate::sandbox::wraps_launches`] is false, and then the run is bare too.
+pub fn probe_command(
+    binary: &str,
+    argv: &[String],
+    profile: Option<&Path>,
+) -> std::process::Command {
+    let (program, argv) = match profile {
+        Some(profile) => crate::sandbox::wrap_command(binary, argv, profile),
+        None => (binary, argv.to_vec()),
+    };
+    let mut command = std::process::Command::new(program);
+    command.args(argv);
+    command
 }
 
 /// The relative paths Hydra writes into a checkout that `hydra reap` must not

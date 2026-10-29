@@ -268,16 +268,22 @@ struct Command {
 /// question the run never asked. It also carries `--add-dir` for the same
 /// reason: a listing taken without the flag is a listing of a workspace this
 /// provider was never told about.
-fn slash(worktree: &Path, command: &str) -> Result<Command> {
+///
+/// **And it runs inside the run's own profile**, since build ticket 375. Both
+/// `/skills` and `/hooks` start the binary with the human's settings, and until
+/// then they ran under no wrapper while the run ran under one.
+fn slash(worktree: &Path, command: &str, profile: Option<&Path>) -> Result<Command> {
     let env = crate::env::ChildEnv::build(crate::provider::Provider::Agy)?;
-    let out = std::process::Command::new("agy")
-        .arg("--add-dir")
-        .arg(worktree)
-        .arg(format!("-p=/{command}"))
-        .arg("--output-format")
-        .arg("json")
-        .arg("--print-timeout")
-        .arg(PROBE_TIMEOUT)
+    let argv = [
+        "--add-dir".to_string(),
+        worktree.display().to_string(),
+        format!("-p=/{command}"),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--print-timeout".to_string(),
+        PROBE_TIMEOUT.to_string(),
+    ];
+    let out = crate::provider::probe_command("agy", &argv, profile)
         .current_dir(worktree)
         .env_clear()
         .envs(env.vars())
@@ -320,8 +326,8 @@ pub struct Mounted {
 /// Free, and it is the only thing standing between Hydra and 6.6's worst failure
 /// mode on this provider: without `--add-dir` the hook config is not an error, it
 /// is `hooks: []`.
-pub fn hooks_mounted(worktree: &Path) -> Result<Vec<Mounted>> {
-    let answer = slash(worktree, "hooks")?;
+pub fn hooks_mounted(worktree: &Path, profile: Option<&Path>) -> Result<Vec<Mounted>> {
+    let answer = slash(worktree, "hooks", profile)?;
     Ok(parse_hooks(&answer.data))
 }
 
@@ -403,8 +409,12 @@ pub fn unmounted_remediation(mounted: &[Mounted], hooks_file: &Path) -> String {
 /// refuses in print mode. Contract 5.3 requires a reader to treat `None` as
 /// unanswered rather than as an empty listing, which is the whole reason the field
 /// is an `Option`.
-pub fn resolve(worktree: &Path, _mcp: crate::mcp::Probe<'_>) -> Result<Resolved> {
-    let answer = slash(worktree, "skills")?;
+pub fn resolve(
+    worktree: &Path,
+    _mcp: crate::mcp::Probe<'_>,
+    profile: Option<&Path>,
+) -> Result<Resolved> {
+    let answer = slash(worktree, "skills", profile)?;
     let skills = answer.data["skills"].as_array().map(|listed| {
         listed
             .iter()

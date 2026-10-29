@@ -140,7 +140,7 @@ impl Scratch {
 /// test measures the pair a record depends on rather than a command written
 /// twice.
 fn resolve(scratch: &Scratch, shape: Probe<'_>) -> hydra::provider::Resolved {
-    claude::resolve_in(&scratch.cwd, shape, &scratch.home, &scratch.env())
+    claude::resolve_in(&scratch.cwd, shape, &scratch.home, &scratch.env(), None)
         .expect("the probe left no transcript")
 }
 

@@ -139,3 +139,115 @@ fn a_post_worktree_handoff_failure_through_run_writes_never_started() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Build ticket 375. A stub `claude` on `PATH` answers `--version`, and when it
+/// sees the probe model it writes once into the run's own worktree and once into
+/// the corpus. The profile allows the first and denies the second. Before the
+/// ticket the probe ran bare and both writes landed; build 370 measured the same
+/// shape committing onto the run's branch in the parent's `refs/heads/`.
+const PROBE_STUB: &str = r#"#!/bin/sh
+case " $* " in
+  *" --version "*) echo "2.1.281 (Claude Code)"; exit 0 ;;
+  *" hydra-skill-preflight-not-a-model "*)
+    : > probe-ran
+    : > "$ESCAPE" 2>/dev/null
+    exit 1 ;;
+esac
+: > run-ran
+printf '{"type":"system","subtype":"init","model":"stub-1","session_id":"stub"}\n'
+printf '{"type":"result","subtype":"success","is_error":false,"result":"done"}\n'
+"#;
+
+#[test]
+fn the_probe_runs_inside_the_runs_wrapper() {
+    if hydra::sandbox::inside_seatbelt() {
+        eprintln!("skip: inside a seatbelt, where the binary refuses HYDRA_ROOT");
+        return;
+    }
+    if !hydra::sandbox::wraps_launches() {
+        eprintln!("skip: nothing wraps a launch on this machine, so nothing wraps the probe");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = scratch_root();
+    let _ = std::fs::remove_dir_all(&root);
+    let layout = Layout::at(&root);
+    layout.ensure().unwrap();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+
+    let escape = layout.runs().join("probe-escaped");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let stub = bin.join("claude");
+    std::fs::write(
+        &stub,
+        PROBE_STUB.replace("\"$ESCAPE\"", &format!("'{}'", escape.display())),
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_hydra"))
+        .args([
+            "run",
+            "--provider",
+            "claude",
+            "--policy",
+            "standard",
+            "--timeout",
+            "60s",
+            "--task",
+            "probe stub",
+        ])
+        .current_dir(&repo)
+        .env("HYDRA_ROOT", &root)
+        .env("PATH", &path)
+        .env_remove("HYDRA_RUN_ID")
+        .output()
+        .unwrap();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let worktree = std::fs::read_dir(root.join("worktrees"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| panic!("no worktree was seeded: {said}"));
+    // The control: the probe ran, and wrote where the profile lets a run write.
+    assert!(
+        worktree.join("probe-ran").exists(),
+        "the probe never ran: {said}"
+    );
+    assert!(
+        !escape.exists(),
+        "the probe wrote into the corpus, so it ran outside the run's wrapper: {said}"
+    );
+    // A probe that fails is a line on stderr, and the launch goes on.
+    assert!(
+        worktree.join("run-ran").exists(),
+        "the run did not launch: {said}"
+    );
+    let run_file = std::fs::read_dir(layout.runs())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .unwrap_or_else(|| panic!("no record was written: {said}"));
+    let text = std::fs::read_to_string(&run_file).unwrap();
+    let end: serde_json::Value = serde_json::from_str(text.lines().next_back().unwrap()).unwrap();
+    assert_eq!(end["hydra"]["type"].as_str(), Some("run_end"), "{text}");
+    assert!(end["hydra"]["refusal"].is_null(), "{end}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}

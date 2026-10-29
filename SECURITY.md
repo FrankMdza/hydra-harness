@@ -135,14 +135,16 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   alone and keeps its index, because removing files under a running child races it.
   Launch-time git runs before the child starts and skips the sweep. Every plant was measured
   with plain git on macOS. None was measured under bubblewrap.
-- **A descendant that called `setsid` survives the group kill at run end and keeps the
+- **On macOS a descendant that called `setsid` survives the group kill at run end and keeps the
   seatbelt.** Since build ticket 372, when a recorded headless run's child exits, the watcher sends
   SIGTERM to the process group the child led, waits `stop::GRACE`, sends SIGKILL, and waits for
   the group to empty before it writes `run_end`. A note on `run_end.error` names each pid and
   command it found, and the outcome stays the provider's. A run that `hydra stop` ended is left
   to the stop, which already kills the group. Interactive sessions are not covered. On Linux,
-  bwrap's `--new-session` puts the provider in a group of its own, so build 370 measured this kill
-  aiming at the wrong group there. A `setsid` descendant leaves the group, and it can still write
+  bwrap's `--new-session` puts the provider in a group of its own. Build 372's group kill reaches
+  bwrap itself. Since build ticket 376, `--unshare-pid` gives the command its own pid namespace.
+  When bwrap's command exits, the namespace ends its remaining processes, including descendants
+  that called `setsid`. On macOS a `setsid` descendant leaves the group and can still write
   the worktree and the private git directory. Since build ticket
   373, `hydra reap` lists every process whose cwd or an open file sits under those paths before
   it sweeps or runs git there. It refuses that run, names each process by pid and command, says
@@ -415,16 +417,21 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   launch in Docker under `standard` with a stand-in `claude`. It recorded
   `sandbox_kind: bubblewrap`, and the deny paths the stand-in tried were refused. Later launches
   ran git status, add, diff and log inside. Claude Code reading the `{}` settings file was not
-  measured. Until builds 375 and 376 land, a Linux launch is not ready for real work.
+  measured. Every Linux launch so far used a stand-in provider, so a Linux launch is not ready
+  for real work until a real one is measured there. `hydra doctor
+  --walk` walks the live corpus on the author's machine, not in CI. `hydra bench` counts a
+  `completed` run as a successful attack, map ticket 114. Nothing sends diffs off the machine
+  today, and map ticket 110 governs any future return of `jev ask`.
 - **The provider probes ran unwrapped until build ticket 375.** Before a run starts, Hydra runs
-  `claude -p x` with a model name no catalog holds, and `agy -p=/skills` and `agy -p=/hooks`,
-  outside the seatbelt or bwrap profile the run gets. On macOS, Claude Code 2.1.281 ran both the
-  `SessionStart` and the `UserPromptSubmit` hooks of a committed `.claude/settings.local.json`
-  under that argv. In Docker a stand-in `claude` committed onto the run's branch from the probe
-  invocation, which the wrapped run could not do. Build 370 measured both on 2026-10-28. `hydra doctor --walk` walks the live corpus on the author's
-  machine, not in CI. `hydra bench` counts a `completed` run as a successful attack, map ticket
-  114. Nothing sends diffs off the machine today, and map ticket 110 governs any future return of
-  `jev ask`.
+  `claude -p x` with a model name no catalog holds, and `agy -p=/skills` and `agy -p=/hooks`.
+  Until 375 those ran outside the seatbelt or bwrap profile the run gets. On macOS, Claude Code
+  2.1.281 ran both the `SessionStart` and the `UserPromptSubmit` hooks of a committed
+  `.claude/settings.local.json` under that argv. In Docker a stand-in `claude` committed onto the
+  run's branch from the probe invocation, which the wrapped run could not do. Build 370 measured
+  both on 2026-10-28. Since 375 a launch writes the gate and the profile before the probe, and
+  all three invocations run inside the run's own profile. Two probes are still bare: the
+  `cursor-agent mcp` pre-flight, and the probe a gated interactive `claude` session runs before
+  its profile exists.
 
 ## Vendor terms
 

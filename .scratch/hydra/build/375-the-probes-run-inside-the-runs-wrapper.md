@@ -1,7 +1,7 @@
 # 375 - The provider probes run inside the run's own wrapper
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by: 370
 
 ## Objective
@@ -29,3 +29,21 @@ The probe has to look at the same machine the run will, which `claude::resolve`'
 `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --release --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release --workspace --no-fail-fast`.
 
 ## Outcome
+
+The probe moved after the profile, and the whole spawn config moved with it. `phase_handoff` now links the skills, calls `write_spawn_config`, then probes. Moving only the profile write was not possible on Linux: the bubblewrap profile binds the gate, and compose refuses a deny source that does not exist yet.
+
+What was built:
+
+- `inject_skills` in `src/run/mod.rs` split into `link_skills`, which pins, snapshots and links, and `probe_skills`, which runs `Provider::resolve` and the collision check. `inject_skills` still composes the two with no profile, for `src/interactive.rs` and the two unit tests.
+- `provider::probe_command` builds the probe's command through `sandbox::wrap_command` when a profile is given. `claude::resolve`, `claude::resolve_in`, `agy::resolve`, `agy::slash` and `agy::hooks_mounted` take the run's profile. `agy_gate_mounted` passes `handoff.spawn.sandbox_profile`. When `wraps_launches()` is false the profile is `None` and the command is the old bare one.
+- `tests/drift.rs` passes `None` to `resolve_in`.
+- The doc comment on `claude::resolve` drops "the same exposure a recorded run already has" and says what build 370 measured.
+- `tests/launch_phases.rs::the_probe_runs_inside_the_runs_wrapper` launches the built `hydra run` under `standard` with a stub `claude` on `PATH`. On the probe argv the stub writes `probe-ran` into the worktree and tries a file under the corpus. The test asserts the first landed, the second did not, and the run itself started and wrote a `run_end` with no refusal.
+
+What the records now say: every handoff refusal comes after a compiled gate. The skill collision, the codex auth pre-flight and both MCP refusals now carry `scopes`, `gate_sha` and `sandbox` on line 0. A failure before the compile still leaves them absent. A probe error after the compile writes `never_started` with the spawn on it.
+
+Measured: the four checks are green, 1542 tests run, 1542 passed, 4 skipped. The new test skipped. This session runs inside Hydra's seatbelt, where the binary refuses `HYDRA_ROOT`, so the test has not run and neither has its before-and-after. Someone outside a seatbelt has to run it, then once more with the profile argument at `phase_handoff` forced to `None` to see it go red.
+
+Assumed and false: the ticket said "move the profile write ahead", as if the profile stood alone. Under bwrap it depends on the gate file. The ticket also listed only `claude::resolve_in` and `agy::slash`. Two more provider invocations happen before a run and are still bare: `cursor::preflight` runs `cursor-agent mcp enable`, `disable` and `list`, and a gated interactive `claude` session probes before `src/interactive.rs` writes its profile.
+
+Measured by the session on 2026-10-28. On macOS outside a seatbelt the new test passes, and with the profile at `phase_handoff` forced to `None` it fails with "the probe wrote into the corpus". In Docker under bubblewrap, with build 376 applied, a stand-in `claude` ran its probe in its own pid and mount namespace. Its write into the corpus landed in the sandbox's tmpfs and not on the host, and its `git commit` was refused. The two bare invocations named above remain.

@@ -82,13 +82,17 @@ tests.
 Hydra is measured on macOS. Linux compiles and runs the test suite in CI since builds 315 and 331.
 Since builds 318a and 318b a Linux launch runs under bubblewrap, composed from the seatbelt's rules.
 That needs `bwrap` on `PATH` and unprivileged user namespaces open. Without both, `standard` and
-`permissive` refuse to launch and `judge` runs with no sandbox. In Docker, bwrap also needed
-`--security-opt seccomp=unconfined --security-opt apparmor=unconfined`, and not `--privileged`.
+`permissive` refuse to launch and `judge` runs with no sandbox. In Docker, bwrap also needs
+`--security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt
+systempaths=unconfined`, and not `--privileged`. The third flag is new with build 376: Docker
+masks paths under `/proc`, and with those masks the kernel refuses the fresh `/proc` that
+`--unshare-pid` needs, so bwrap exits with "Can't mount proc".
 Build 370 measured one launch under `standard` in that container. It recorded
 `sandbox_kind: bubblewrap` and refused the deny paths it tried. Git status, add, diff and log
-worked inside it. Builds 375 and 376 come before a Linux launch is ready for real work: the
-provider probes Hydra runs before a launch have no wrapper yet, and a Linux run's leftover
-processes are not yet killed. Recorded runs stay on the Mac until then. A
+worked inside it. Since builds 375 and 376 the provider probes run inside the run's wrapper and a `setsid` process
+a run leaves behind dies when bwrap's command exits, both measured in that container. Every
+launch there used a stand-in provider, so recorded runs stay on the Mac until a real provider is
+measured on Linux. A
 Windows port is larger: the pty crate supports ConPTY, but the liveness test, the gate's shell
 parsing (POSIX today) and the hook paths all assume a Unix shell. Both are
 welcome as forks or pull requests; open an issue first so the design map gets a ticket and the
