@@ -21,4 +21,8 @@ So the answer the map waited for is in: add `--unshare-pid` to the argv `compose
 - `SECURITY.md`'s `setsid` bullet and `IMPLEMENTATION.md`'s Linux paragraph: on Linux the pid namespace ends what a run leaves behind when bwrap's command exits, and build 372's group kill reaches bwrap itself.
 - The builder cannot run Docker from inside a run. The session measures the change in the container after applying it: a stand-in `claude` that leaves a `setsid` loop behind, then a check from the host that the loop is gone after `run_end`. Leave a line in the Outcome for that measurement.
 
+## Checks
+
+`cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --release --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release --workspace --no-fail-fast`.
+
 ## Outcome

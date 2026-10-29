@@ -24,4 +24,8 @@ The probe has to look at the same machine the run will, which `claude::resolve`'
 - Amend `IMPLEMENTATION.md` and the doc comment on `claude::resolve`, which says the probe runs the human's hooks and calls it "the same exposure a recorded run already has". It was not the same, since the run is wrapped.
 - `SECURITY.md`: add a bullet saying the probes ran unwrapped before this ticket and what the measurement above found.
 
+## Checks
+
+`cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --release --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release --workspace --no-fail-fast`.
+
 ## Outcome
