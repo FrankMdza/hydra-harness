@@ -411,6 +411,7 @@ it.
 - [374 - The public documents catch up with builds 356 to 373 and maps 108, 135 and 136](374-public-docs-catch-up-with-builds-356-to-373.md)
 - [375 - The provider probes run inside the run's own wrapper](375-the-probes-run-inside-the-runs-wrapper.md)
 - [376 - A bubblewrap launch unshares the pid namespace](376-bubblewrap-unshares-the-pid-namespace.md)
+- [377 - The last two bare provider invocations run inside the run's wrapper](377-the-last-two-bare-provider-invocations.md)
 
 ## Out of scope
 
