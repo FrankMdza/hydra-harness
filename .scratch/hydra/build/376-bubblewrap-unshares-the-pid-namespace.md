@@ -1,7 +1,7 @@
 # 376 - A bubblewrap launch unshares the pid namespace
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 370
 
 ## Objective

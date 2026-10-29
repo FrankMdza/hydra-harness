@@ -1,7 +1,7 @@
 # 375 - The provider probes run inside the run's own wrapper
 
 Type: build
-Status: open
+Status: claimed
 Blocked by: 370
 
 ## Objective
