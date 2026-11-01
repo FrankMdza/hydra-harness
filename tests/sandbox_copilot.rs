@@ -226,3 +226,64 @@ fn under_the_copilot_profile_a_shell_write_to_home_is_refused() {
     assert!(refused(&out), "a write to home was not refused: {out}");
     assert!(!landed, "{} was written", planted.display());
 }
+
+/// Build ticket 378, map 99. A gated session writes neither `~/.claude.json`
+/// nor `~/.claude/history.jsonl`, nor a sibling `claude` would rename over
+/// either. The block is built for a scratch home and spliced after the TIOCSTI
+/// line the way `narrow_for_copilot` splices it for the real one. The scratch
+/// home sits in `/private/var/tmp`. Under the temp directories the block hands
+/// back it would be writable, and under `~/hydra`, where the human's checkout
+/// builds, the headless profile denies the control write.
+#[test]
+fn under_the_copilot_profile_neither_claude_file_is_writable() {
+    if !seatbelt_exec_or_skip("under_the_copilot_profile_neither_claude_file_is_writable") {
+        return;
+    }
+    let scratch = scratch("claude-files");
+    let profile = headless_profile(&scratch);
+    let fake_home = PathBuf::from("/private/var/tmp")
+        .join(format!("hydra-build-378-home-{}", std::process::id()));
+    let tmp = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    assert!(
+        !fake_home.starts_with(&tmp),
+        "TMPDIR {} holds the scratch home, so the block would hand it back",
+        tmp.display()
+    );
+    let _ = std::fs::remove_dir_all(&fake_home);
+    std::fs::create_dir_all(fake_home.join(".claude/debug")).unwrap();
+    std::fs::write(fake_home.join(".claude.json"), "{}\n").unwrap();
+    std::fs::write(fake_home.join(".claude/history.jsonl"), "").unwrap();
+
+    let block =
+        hydra::sandbox::copilot_block(&fake_home, &scratch.worktree, profile.parent().unwrap())
+            .unwrap();
+    let text = std::fs::read_to_string(&profile).unwrap();
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let at = lines.iter().position(|line| line == TIOCSTI).unwrap();
+    lines.splice(at + 1..at + 1, block);
+    std::fs::write(&profile, format!("{}\n", lines.join("\n"))).unwrap();
+
+    let home = canonical_subpath(&fake_home);
+    // The control: a state directory the block hands back takes a write, so
+    // the refusals below are the kernel's and not a probe that never ran.
+    let out = under_seatbelt(
+        &profile,
+        &format!("printf x > '{home}/.claude/debug/own.txt'"),
+    );
+    assert!(
+        !refused(&out),
+        "a write to a state directory was refused: {out}"
+    );
+
+    for (file, before) in [(".claude.json", "{}\n"), (".claude/history.jsonl", "")] {
+        let path = format!("{home}/{file}");
+        for target in [path.clone(), format!("{path}.tmp"), format!("{path}.lock")] {
+            let out = under_seatbelt(&profile, &format!("printf x >> '{target}'"));
+            assert!(refused(&out), "a write to {target} was not refused: {out}");
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before, "{path}");
+        assert!(!Path::new(&format!("{path}.tmp")).exists());
+        assert!(!Path::new(&format!("{path}.lock")).exists());
+    }
+    let _ = std::fs::remove_dir_all(&fake_home);
+}

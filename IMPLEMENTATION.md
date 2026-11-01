@@ -3637,16 +3637,21 @@ A human must still run one session and confirm the vendor's TUI works under the 
 answered a gated session writing `~/prueba-fuera.txt` with `printf`. `sandbox::narrow_for_copilot`
 puts `(deny file-write* (subpath "<home>"))` right after the TIOCSTI rule, then allows the
 worktree, `$TMPDIR`, `/private/tmp`, `/private/var/folders`, the spawn directory, twelve
-directories of `claude` state under `~/.claude`, `~/Library/Caches/claude-cli-nodejs`, and
-`~/.claude.json` and `~/.claude/history.jsonl` by prefix. Every rule `compose` writes comes
+directories of `claude` state under `~/.claude`, and `~/Library/Caches/claude-cli-nodejs`.
+Build 250 also allowed `~/.claude.json` and `~/.claude/history.jsonl` by regex prefix. Build 378
+removed both allows and the `Rule::CopilotWriteAllowRegex` variant that only a test produced,
+because map 99 measured on 2026-11-01 that `claude` 2.1.312 runs with both denied. Every rule `compose` writes comes
 after the block, so Hydra's own denials still win over it, and `run_start.sandbox` is the sha of
 the narrowed file. Headless launches compose the profile they did before, byte for byte.
-`settings.json`, `hooks/`, `skills/`, `plugins/` and `CLAUDE.md` stay denied, but
-`~/.claude.json` is writable and carries user-scope MCP servers. The `claude` list was not
+`settings.json`, `hooks/`, `skills/`, `plugins/`, `CLAUDE.md`, `~/.claude.json` and
+`~/.claude/history.jsonl` stay denied. A bubblewrap profile is still refused before narrowing:
+the block is seatbelt text spliced after the seatbelt TIOCSTI line, and the bwrap profile opens
+with `--new-session`, which detaches the human's terminal. The `claude` list was not
 traced: nested `sandbox-exec` is refused inside a run, so it comes from the entries running
 sessions had modified on 2026-10-03, and `claude --version` and `--help` wrote nothing outside
-`~/.claude`. The live probe in `tests/sandbox_copilot.rs` skips inside a seatbelt and has not
-run. Shell work that writes under home, `~/.cargo` or `~/.npm`, now fails in a gated session.
+`~/.claude`. The two live probes in `tests/sandbox_copilot.rs` skip inside a seatbelt and have
+not run. The one build 378 added writes to both files and to a `.tmp` and `.lock` sibling of
+each under a scratch home in `/private/var/tmp`. Shell work that writes under home, `~/.cargo` or `~/.npm`, now fails in a gated session.
 Whether a real cockpit session still starts and answers is the human's to check.
 
 **Since build ticket 257, no gated run can write where a later launch loads a plugin.**

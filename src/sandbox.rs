@@ -449,10 +449,6 @@ pub enum Rule {
     },
     /// Rule 12. The worktree's write deny under a bounded shell, last in the profile.
     BoundedWorktreeWriteDeny(String),
-    /// The prefix allows of [`copilot_block`] for `~/.claude.json` and
-    /// `~/.claude/history.jsonl`. `pattern` is already regex-escaped. [`rules_of`]
-    /// never emits it, because the copilot block is not part of [`compose`].
-    CopilotWriteAllowRegex(String),
 }
 
 /// The rules [`compose`] emits, in its order. [`render_sbpl`] and
@@ -666,9 +662,6 @@ pub fn render_sbpl(rules: &[Rule]) -> String {
                     r##"(deny file-write* (regex #"/{component}{suffix}"))"##
                 ));
             }
-            Rule::CopilotWriteAllowRegex(pattern) => {
-                lines.push(format!(r##"(allow file-write* (regex #"^{pattern}"))"##));
-            }
         }
     }
     format!("{}\n", lines.join("\n"))
@@ -823,9 +816,6 @@ pub fn translate_rule_to_bwrap(rule: &Rule) -> std::result::Result<Vec<String>, 
         Rule::PluginManifestRegexDeny { component, suffix } => Err(format!(
             "rule 11 (plugin manifest regex /{component}{suffix}) has no bubblewrap mount equivalent"
         )),
-        Rule::CopilotWriteAllowRegex(pattern) => Err(format!(
-            "copilot regex rule (^{pattern}) has no bubblewrap mount equivalent"
-        )),
     }
 }
 
@@ -839,13 +829,17 @@ pub fn translate_rule_to_bwrap(rule: &Rule) -> std::result::Result<Vec<String>, 
 /// back where it works and where `claude` keeps the state it needs to run.
 /// Headless launches keep the profile [`compose`] writes.
 pub fn narrow_for_copilot(profile: &Path, worktree: &Path) -> Result<String> {
-    let home = crate::env::real_home()?;
+    // Build ticket 378. The regex allows this refusal first named are gone,
+    // and the refusal stays. The block below is seatbelt text spliced after the
+    // seatbelt TIOCSTI line, which a bubblewrap profile does not have. That
+    // profile also opens with `--new-session`, which detaches the terminal a
+    // human types into.
     if is_bwrap(profile) {
         anyhow::bail!(
-            "copilot regex rule (^{}/.claude.json) has no bubblewrap mount equivalent; gated interactive launch is not supported under bubblewrap",
-            home.display()
+            "the copilot block has only a seatbelt form; gated interactive launch is not supported under bubblewrap"
         );
     }
+    let home = crate::env::real_home()?;
     let spawn_dir = profile
         .parent()
         .context("a profile path with no spawn directory")?;
@@ -895,15 +889,10 @@ pub fn copilot_block(home: &Path, worktree: &Path, spawn_dir: &Path) -> Result<V
             escape(&path)
         ));
     }
-    // A prefix rather than a literal: `claude` rewrites `~/.claude.json`
-    // through a sibling it renames over it, and keeps a lock beside it.
-    // `history.jsonl` takes a lock the same way.
-    for file in [".claude.json", ".claude/history.jsonl"] {
-        lines.push(format!(
-            r##"(allow file-write* (regex #"^{}"))"##,
-            regex_escape(&format!("{home}/{file}"))
-        ));
-    }
+    // Build ticket 378, map 99. `~/.claude.json` and `~/.claude/history.jsonl`
+    // stay under the home deny. A session that writes `~/.claude.json` can add a
+    // user-scope MCP server, and the human's next ungated `claude` starts it.
+    // `claude` 2.1.312 ran with both denied on 2026-11-01.
     Ok(lines)
 }
 
@@ -1299,7 +1288,6 @@ mod tests {
                 Rule::PluginWriteDenySubpath(_) => "plugin-write",
                 Rule::PluginManifestRegexDeny { .. } => "plugin-manifest",
                 Rule::BoundedWorktreeWriteDeny(_) => "bounded-worktree",
-                Rule::CopilotWriteAllowRegex(_) => "copilot",
             };
             if out.last() != Some(&kind) {
                 out.push(kind);
@@ -1661,7 +1649,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Build ticket 318a. Bubblewrap has no mount for three rules, and the
+    /// Build ticket 318a. Bubblewrap has no mount for two rules, and the
     /// translation names each one rather than dropping it.
     #[test]
     fn translate_rule_to_bwrap_refuses_untranslatable_rules_naming_each_rule() {
@@ -1683,14 +1671,6 @@ mod tests {
             translate_rule_to_bwrap(&plugin),
             Err(r"rule 11 (plugin manifest regex /\.claude-plugin$) has no bubblewrap mount equivalent"
                 .to_string())
-        );
-        let copilot = Rule::CopilotWriteAllowRegex(regex_escape("/h/.claude.json"));
-        assert_eq!(
-            translate_rule_to_bwrap(&copilot),
-            Err(
-                r"copilot regex rule (^/h/\.claude\.json) has no bubblewrap mount equivalent"
-                    .to_string()
-            )
         );
         let interactive = Rule::InteractiveTtyTiocstiDeny {
             legacy_tiocsti_disabled: false,
@@ -1878,21 +1858,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Build ticket 318b. The copilot's regex allow has no bubblewrap mount, so a
+    /// Build tickets 318b and 378. The copilot block is seatbelt text only, so a
     /// bwrap profile is refused by name rather than narrowed.
     #[test]
-    fn narrow_for_copilot_refuses_a_bwrap_profile_naming_the_regex_rule() {
+    fn narrow_for_copilot_refuses_a_bwrap_profile() {
         let root = std::env::temp_dir().join(format!("hydra-copilot-bwrap-{}", std::process::id()));
         let profile = root.join("sandbox.bwrap");
         let err = narrow_for_copilot(&profile, &root).unwrap_err().to_string();
-        assert!(err.contains("copilot regex rule (^"), "{err}");
         assert!(
-            err.contains("/.claude.json) has no bubblewrap mount equivalent"),
+            err.contains("the copilot block has only a seatbelt form"),
             "{err}"
         );
         assert!(
             err.contains("gated interactive launch is not supported under bubblewrap"),
             "{err}"
         );
+    }
+
+    /// Build ticket 378, map 99. No line of the copilot block hands back
+    /// `~/.claude.json` or `~/.claude/history.jsonl`, by regex or by path.
+    #[test]
+    fn the_copilot_block_allows_neither_claude_json_nor_history() {
+        let block = copilot_block(Path::new("/h"), Path::new("/w"), Path::new("/s")).unwrap();
+        assert_eq!(block[0], r#"(deny file-write* (subpath "/h"))"#);
+        for line in &block {
+            assert!(!line.contains("regex"), "{line}");
+            assert!(!line.contains(".claude.json"), "{line}");
+            assert!(!line.contains("history.jsonl"), "{line}");
+        }
     }
 }

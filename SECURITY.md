@@ -79,10 +79,11 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   the rest of the machine: `~/.ssh`, your own `~/.claude` hooks and settings, and any directory on
   `PATH` ahead of `/usr/bin`, which is where the vendor binary is resolved from, except in a gated
   interactive session since build 250, which writes nothing under your home directory outside its
-  worktree and `claude`'s session state. That state includes `~/.claude.json`, where Claude Code
-  keeps user-scope MCP servers, and `~/.claude/history.jsonl*`. A gated interactive `claude`
-  session can add a server to `~/.claude.json`, and the next ungated `claude` session starts it.
-  Map ticket 99 holds that question. The gate allows
+  worktree, the `~/.claude` state directories the profile lists and
+  `~/Library/Caches/claude-cli-nodejs`. Since build 378 that session writes neither
+  `~/.claude.json`, where Claude Code keeps user-scope MCP servers, nor `~/.claude/history.jsonl`.
+  Map ticket 99 asked whether `claude` runs without them, and on 2026-11-01 `claude` 2.1.312 ran
+  with both denied, in `-p` mode and interactively. The gate allows
   one read outside the worktree on `claude`: the run's own `~/.claude/projects/<slug>/`
   directory, for tool output Claude Code wrote there; every other path under `~/.claude` stays
   refused on a gated `Read`. The honest
@@ -419,8 +420,9 @@ on disk, and a same-uid `ps -E` still reads the environment of your own terminal
   ran git status, add, diff and log inside. Claude Code reading the `{}` settings file was not
   measured. Every Linux launch so far used a stand-in provider, so a Linux launch is not ready
   for real work until a real one is measured there. `hydra doctor
-  --walk` walks the live corpus on the author's machine, not in CI. `hydra bench` counts a
-  `completed` run as a successful attack, map ticket 114. Nothing sends diffs off the machine
+  --walk` walks the live corpus on the author's machine, not in CI. `hydra bench` refuses to
+  launch without `--dry-run` until map ticket 114 defines, per attack class, what in the record
+  counts as a success. Nothing sends diffs off the machine
   today, and map ticket 110 governs any future return of `jev ask`.
 - **The provider probes ran unwrapped until build tickets 375 and 377.** Before a run starts,
   Hydra runs `claude -p x` with a model name no catalog holds, `agy -p=/skills` and
