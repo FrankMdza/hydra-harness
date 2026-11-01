@@ -361,6 +361,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - [108 - One list of secret classes](issues/108-one-list-of-secret-classes.md): resolved 2026-10-27 by a four-seat panel the human delegated to. B: the write path keeps five classes, one shared table in a leaf crate, the cockpit masks spans by the full list; builds 368 and 369.
 - [136 - Does a run's process group die with the run?](issues/136-does-a-runs-process-group-die-with-the-run.md): resolved 2026-10-27 by a four-seat panel the human delegated to. Yes: SIGTERM, grace, SIGKILL before `run_end`; reap refuses while a process holds the checkout; Linux waits for 370; builds 372 and 373.
 - 131 - withheld: a lock inside a private repository.
+- [99 - The gated copilot can still write `~/.claude.json`](issues/99-the-gated-copilot-can-still-write-claude-json.md): resolved 2026-11-01 by map 134's panel. Measured that `claude` runs without writing it; deny both files; build 378.
+- [134 - The public gate](issues/134-the-public-gate.md): resolved 2026-11-01 by a three-seat panel the human asked for. 99 fix before, 110 and 114 stated; the human's list before publication is in the answer.
 
 ## Not yet specified
 

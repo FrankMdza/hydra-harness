@@ -1,7 +1,7 @@
 # 134 - The public gate: for each exposure the repository admits, state it, fix it before, or fix it after
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-15, by the session, from the human's words: SECURITY.md reads as full of holes or
 out of date, and every one should be resolved before the repository is public. Section 3 of
@@ -58,3 +58,14 @@ Checked by the session, which did not sit a panel on it: what is left is the hum
 - crates.io: `Cargo.toml` already sets `publish = false`. The repository is private on GitHub, with no topics and no homepage.
 
 What the human has left before publication: the `config/mcp.md` edit, map 99's measurement, map 110, the GitHub topics, homepage and social preview, and the switch to public.
+
+## Answer
+
+Resolved on 2026-11-01 by a panel the human asked for, three seats of four after Grok's `auth_failed` (`research/134-synthesis.md`).
+
+- Map 99 is fix before: build 378 denies both files in the gated session, and resolves 99.
+- Maps 110 and 114 are fix after, stated in `SECURITY.md`. Nothing under `src/` sends a diff off the machine, and `hydra bench` refuses to launch without `--dry-run`.
+- The audit found no false claim that needs a new build. Two stale sentences, the bench line and the copilot's write list, go into build 378.
+- crates.io: no, `publish = false` stands.
+
+What the human does before publication, in order: apply build 378 and type its 30-minute acceptance session; replace `config/mcp.md` lines 40 to 43 with the text in the synthesis; set the eight topics in the synthesis, no homepage; push; switch the repository to public.

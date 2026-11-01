@@ -1,7 +1,7 @@
 # 99 - The gated copilot can still write `~/.claude.json`
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by:
 Opened: 2026-10-03, by the session, from build ticket 250's Outcome.
 
@@ -30,3 +30,11 @@ end to end; it is read off what the file holds.
 3. Does the same hold for `history.jsonl`, which a later session reads back as input?
 
 ## Answer
+
+Resolved on 2026-11-01 by the panel of map 134, which the human asked for (`research/134-synthesis.md`), three seats of three.
+
+1. Measured, not decided: the session ran `claude` 2.1.312 under a write deny on both files, in `-p` mode, interactively in a trusted directory, and interactively in a fresh one after its trust dialog. It answered every time, and neither file changed.
+2. (a): the narrowed profile denies writes to `~/.claude.json*` and `~/.claude/history.jsonl*`. `copilot_block` already denies the whole home directory, so the fix removes the two regex allows. Build 378. The cost is a trust dialog once per gated session, and prompts, `/mcp` approvals and `claude mcp add` from inside one that do not persist.
+3. Yes, `history.jsonl` goes with it, covered by the same measurement.
+
+Not measured: a long gated session through `hydra run --interactive`. Build 378 leaves that to the human as its acceptance.

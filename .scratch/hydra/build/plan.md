@@ -496,3 +496,4 @@ Rung two was out of scope for this file until rung one had run; build ticket 36 
 - [132 - A `rate_limited` record revises that provider's window budget, and the file keeps the history](132-the-session-revises-window-budgets-with-a-history.md)
 - [133 - The mode's judge panel can sit degraded, declared, with a role and evidence slice per seat](133-a-degraded-panel-declared.md)
 - [134 - A Jev probe on committed build diffs, scored against their Outcomes](134-a-jev-probe-on-committed-diffs.md)
+- [378 - A gated interactive session writes neither `~/.claude.json` nor `history.jsonl`](378-the-copilot-writes-neither-claude-file.md)
