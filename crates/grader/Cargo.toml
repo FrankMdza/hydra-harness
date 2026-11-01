@@ -16,7 +16,7 @@ anyhow = "1.0.104"
 hydra-pyjson = { path = "../pyjson" }
 hydra-records = { path = "../records" }
 libc = "0.2.189"
-sha2 = "0.10"
+sha2 = "0.11"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "warn"

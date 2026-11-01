@@ -85,6 +85,8 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   - The `ci` workflow parses again. Builds 363 and 364 left a `run:` line ending in `::`, which
     YAML reads as a mapping, so GitHub started no `ci` job on master from 2026-10-28.
     `tests/workflows.rs` parses every workflow and fails on a `run` that is not a string.
+  - Dependencies: `sha2` 0.11, `yaml-rust2` 0.13, `actions/checkout` v7.0.1 in `ci`, and the
+    minor and patch group, the four Dependabot pull requests of 2026-10-15. No code changed.
 
 ## 0.3.0, 2026-10-15
 
