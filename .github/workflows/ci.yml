@@ -61,7 +61,7 @@ jobs:
       # Build ticket 363. The pure unit tests in `src/sandbox.rs`: the bubblewrap
       # composer, the seatbelt rules and the Linux witness. The workspace step below skips
       # them by the `sandbox` substring.
-      - run: cargo test --release --lib sandbox::tests::
+      - run: cargo test --release --lib 'sandbox::tests::'
       # Build 331. `--skip` matches a substring of a test's name across every binary. The
       # nine names after `sandbox` are what a Linux machine has not measured yet (map 130,
       # item 1, groups e, f and g); `README.md` names the same list. Remove a name only with

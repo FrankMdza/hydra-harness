@@ -79,6 +79,12 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   - The `cursor-agent mcp` pre-flight and a gated interactive `claude` session's skill probe run
     inside the run's profile too, the interactive one after `narrow_for_copilot`.
     `inject_skills` is gone. Build 377, run `01a185ae`.
+- 2026-11-01.
+  - A gated interactive session writes neither `~/.claude.json` nor `~/.claude/history.jsonl`.
+    `claude` 2.1.312 runs with both denied. Map 99, build 378, run `01a198c6`.
+  - The `ci` workflow parses again. Builds 363 and 364 left a `run:` line ending in `::`, which
+    YAML reads as a mapping, so GitHub started no `ci` job on master from 2026-10-28.
+    `tests/workflows.rs` parses every workflow and fails on a `run` that is not a string.
 
 ## 0.3.0, 2026-10-15
 
