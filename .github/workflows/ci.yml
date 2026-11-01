@@ -64,7 +64,7 @@ jobs:
       - run: cargo test --release --lib 'sandbox::tests::'
       # Build 331. `--skip` matches a substring of a test's name across every binary. The
       # nine names after `sandbox` are what a Linux machine has not measured yet (map 130,
-      # item 1, groups e, f and g); `README.md` names the same list. Remove a name only with
+      # item 1, groups e, f and g); `docs/install.md` under Ports names the same list. Remove a name only with
       # the ticket that makes it pass here.
       #   a_long_frame_survives_being_split_across_reads: a 200,000-byte pty frame arrives cut
       #     on Linux; unmeasured whether the tee or the pty line discipline.

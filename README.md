@@ -3,15 +3,9 @@
 One command runs `claude`, `cursor-agent`, `agy` or `codex` in its own git worktree, behind a
 deny-by-default policy, and leaves one JSONL record per run that says what actually happened.
 
-Measured on macOS. On Linux it compiles and the test suite runs on `ubuntu-latest` since build
-ticket 331, minus the seatbelt tests and nine tests skipped by name in `.github/workflows/ci.yml`:
-two pty tests and seven bit-exact CPython arithmetic tests whose fixtures were recorded on an arm64
-Mac. Since build 318b a Linux launch runs under bubblewrap when `bwrap` is on `PATH` and user
-namespaces are open. Build 370 measured such launches in Docker: they recorded
-`sandbox_kind: bubblewrap`, their deny paths held, and git status, add, diff and log worked inside.
-Since builds 375 and 376 the provider probes run inside the same wrapper, and a run's leftover
-processes die with bwrap's pid namespace. Every Linux launch so far used a stand-in provider, so
-recorded runs stay on the Mac until a real one is measured there (map 119, `docs/roadmap.md`).
+Measured on macOS. On Linux it compiles, the test suite runs in CI minus the tests
+`docs/install.md` names, and a launch runs under bubblewrap. No real vendor CLI has been measured
+on Linux yet, so treat Linux runs as untested. `docs/roadmap.md` says what is left.
 
 ![hydra run on agy: the vendor reports SUCCESS, the record says gated](docs/demo/hydra.gif)
 
@@ -57,14 +51,20 @@ What one run gets:
 
 ## Install
 
-macOS, Rust 1.88 or newer, and at least one of the four CLIs installed and logged in.
+macOS, Rust 1.88 or newer, and at least one of the four CLIs installed and logged in. A fresh
+Mac lacks two things. The Command Line Tools come from `xcode-select --install` and bring `git`
+and `/usr/bin/python3`. A Rust toolchain comes from rustup, at https://rustup.rs.
 
 ```
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
 cargo build --release --workspace
 mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
+ln -sf ~/hydra/integrations/copilot/bin/masterofpuppets ~/.local/bin/masterofpuppets
+export PATH="$HOME/.local/bin:$PATH"
 hydra doctor
 ```
+
+The `export` line lasts for one shell. Add it to your shell profile, `~/.zshrc` on a default Mac.
 
 Hydra writes its runs, worktrees and skill store under `~/hydra/`. A checkout anywhere else
 refuses to launch unless `HYDRA_ROOT` is set; the path above makes the two the same directory on
@@ -90,7 +90,8 @@ hydra cockpit                     # the viewer: tasks, runs by state, one run's 
 
 All four providers take a recorded run. The interactive mode, where the vendor draws its own
 interface and Hydra harvests the transcript afterwards, runs ungated on all four providers since
-builds 255, 266 and 267, and only `claude` takes `--policy` there until build ticket 130.
+builds 255, 266 and 267. Only `claude` takes `--policy` there. The other three wait for build
+ticket 130, which is open.
 
 ## Commands
 
@@ -159,7 +160,8 @@ documents on 2026-10-15; a "no" means the project says nothing of it.
 
 Omnigent has three platforms, an egress proxy and spend caps in dollars. Scion isolates the
 process and the network. OpenCode has the users. ghostex has the workspace. Hydra writes the
-contract-checked record and derives the outcome from the stream, and `.scratch/hydra/research/129-ready-to-go-public.md` is the longer reading of the same shelf.
+contract-checked record and derives the outcome from the stream. A longer reading of the same
+shelf is in the design history, `.scratch/hydra/research/129-ready-to-go-public.md`.
 
 ## What Hydra is not
 
@@ -174,13 +176,15 @@ contract-checked record and derives the outcome from the stream, and `.scratch/h
 
 ## Status
 
+Counted on 2026-11-01.
+
 | | |
 |---|---|
 | Commands | 20 a human types, 2 hidden |
-| Test files | 41 under `tests/`, 25 under `crates/*/tests/`, run with `cargo nextest` |
-| Records on the author's machine | 997 on 2026-10-27, every one checked by `hydra doctor --walk` |
-| Build tickets | 356 opened, 353 resolved, every resolved one ending in an `## Outcome` |
-| Design tickets | 134 on the map, 122 resolved |
+| Test files | 42 under `tests/`, 25 under `crates/*/tests/`, run with `cargo nextest` |
+| Records on the author's machine | 1,056, every one checked by `hydra doctor --walk` |
+| Build tickets | 376 opened, 374 resolved, every resolved one ending in an `## Outcome` |
+| Design tickets | 136 on the map, 128 resolved |
 | Written by agents through `hydra run` | most of the Rust since build 17; `docs/who-wrote-the-code.md` has the table |
 
 `IMPLEMENTATION.md` is every departure from the design with its reason, over 6,400 lines of them. Read
@@ -195,9 +199,10 @@ both rungs of self-improvement. Nothing crosses between the harness and the rung
 record and the skill store.
 
 `.scratch/hydra/` is the design history: `map.md` and `issues/` are the decisions with their
-reasoning, `build/` the tickets with what each run changed, `research/` the long findings. Those
-files are written for the sessions that build Hydra and point at the author's private notes in
-places; a reader needs `README.md`, `SECURITY.md` and `docs/`, and nothing else, to use it.
+reasoning, `build/` the tickets with what each run changed, `research/` the long findings. The
+sessions that build Hydra wrote those files for each other. Some of them cite handoff notes in
+`~/.claude/handoffs/` on the author's machine, which are not published. To use Hydra, a reader
+needs `README.md`, `SECURITY.md` and `docs/`.
 `CLAUDE.md` is what an agent working on Hydra reads first.
 
 ## Contributing, support, license

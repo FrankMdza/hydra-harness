@@ -1,7 +1,7 @@
 # 379 - A stranger can install from the README, and its numbers are true
 
 Type: build
-Status: claimed
+Status: resolved
 Blocked by:
 
 ## Objective
@@ -28,3 +28,22 @@ Leave alone: `config/export-allowlist.json`, which is protected; `docs/demo/corp
 `cargo fmt --all --check`, `cargo clippy --release --workspace --all-targets -- -D warnings`, `cargo check --release --target x86_64-unknown-linux-gnu`, and `cargo nextest run --release --workspace --no-fail-fast`.
 
 ## Outcome
+
+Prose and one script, no Rust.
+
+1. The README's `## Install` block and `docs/install.md` now run `export PATH="$HOME/.local/bin:$PATH"` before `hydra doctor`, then tell the reader to add it to `~/.zshrc`. Both name the Command Line Tools through `xcode-select --install`, which brings `git` and `/usr/bin/python3`, and rustup for the Rust toolchain.
+2. The README's install block gained the `masterofpuppets` `ln -sf` line from `docs/install.md`.
+3. The README's opening Linux paragraph is three sentences with no ticket numbers. The nine skipped test names moved to `docs/install.md` under `## Ports`, and the `ci.yml` comment now points there. `tests/workflows.rs` passes.
+4. README line 93 now says only `claude` takes `--policy` in interactive mode and the other three wait for build ticket 130, which is open.
+5. The `## Status` table is dated 2026-11-01 and recounted. `ls tests/*.rs` gives 42 and `ls crates/*/tests/*.rs` gives 25. `ls .scratch/hydra/build/` gives 376 numbered ticket files, and `grep -l '^Status: resolved'` gives 374 once this ticket closes. `hydra-puppets frontier build` prints 369 of 372 because `frontier.rs` line 88 takes only all-digit ids and skips 318a, 318b, 340a and 340b. The table uses the file count. `hydra-puppets frontier` prints 128 of 136, which matches the 136 files under `issues/`. The records row keeps its 2026-10-27 count: `~/hydra/runs/` is outside what this run may read, and the table says so. No test pins any of these numbers.
+6. The link to `research/129-ready-to-go-public.md` stays, marked as design history. The `.scratch/` paragraph now says that some of those files cite handoff notes in `~/.claude/handoffs/`, which are not published.
+7. `llms.txt` builds with `--workspace`, says measured on macOS, and carries the README's Linux sentence instead of "Linux untested".
+8. `masterofpuppets` usage examples name `~/some-repo`.
+
+`IMPLEMENTATION.md` needed no change. It makes no claim about the README's install block, the counts or the skip list.
+
+False assumption: the ticket's counts assumed the frontier and the tree agree. They differ by four, the lettered tickets. CLAUDE.md's "372 resolved of 374" matches neither and is protected from this run.
+
+Checks: `cargo fmt --all --check`, clippy with `-D warnings`, and `cargo check` for `x86_64-unknown-linux-gnu` are clean. `cargo nextest run --release --workspace --no-fail-fast` ran 1547 tests with 1547 passed and 4 skipped.
+
+The session, on 2026-11-01: `hydra doctor --walk` checked 1,056 records, and the README's records row now says so. CLAUDE.md's counts now read 374 of 376, with a note that `hydra-puppets frontier` skips lettered ids.

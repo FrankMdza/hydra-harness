@@ -4,9 +4,9 @@ set -euo pipefail
 # Build ticket 261. Master of Puppets on any repository: the cockpit with the copilot in its
 # orchestrating mode, started outside the repository with the `puppets` skill installed.
 #   masterofpuppets <repo> [model] [provider]
-#   masterofpuppets ~/private-repo opus
-#   masterofpuppets ~/private-repo "" codex
-#   masterofpuppets ~/private-repo "" cursor-agent
-#   masterofpuppets ~/private-repo "" agy
+#   masterofpuppets ~/some-repo opus
+#   masterofpuppets ~/some-repo "" codex
+#   masterofpuppets ~/some-repo "" cursor-agent
+#   masterofpuppets ~/some-repo "" agy
 REPO="${1:?usage: masterofpuppets <repo> [model] [provider]}"
 HYDRA_COPILOT_MODE=puppets exec "$(dirname "$(readlink -f "$0")")/hydra-copilot" "${2:-}" "$REPO" "${3:-claude}"

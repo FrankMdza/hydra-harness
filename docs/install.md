@@ -6,16 +6,20 @@ subscription. `hydra doctor` checks `/usr/bin/python3` since build ticket 358. H
 that is the documented path for scripted use on all four, and `SECURITY.md` says what their terms
 still forbid.
 
+A fresh Mac lacks two of these. `xcode-select --install` installs the Command Line Tools, which
+bring `git` and `/usr/bin/python3`. rustup, at https://rustup.rs, installs the Rust toolchain.
+
 ```
 git clone https://github.com/FrankMdza/hydra-harness ~/hydra && cd ~/hydra
 cargo build --release --workspace   # --workspace also builds hydra-puppets, hydra-grader and the rest
 mkdir -p ~/.local/bin && ln -sf ~/hydra/target/release/hydra ~/.local/bin/hydra
 ln -sf ~/hydra/integrations/copilot/bin/masterofpuppets ~/.local/bin/masterofpuppets
+export PATH="$HOME/.local/bin:$PATH"
 hydra doctor            # its "hydra on PATH" line should say "this binary"
 ```
 
-Check that `~/.local/bin` is on your `PATH` (`echo $PATH`), and add it to your shell profile if
-not. A shell alias is not enough. The delegate face is spawned by the vendor's CLI, which sees
+The `export` line lasts for one shell. Add it to your shell profile, `~/.zshrc` on a default Mac,
+so the next shell finds `hydra` too. A shell alias is not enough. The delegate face is spawned by the vendor's CLI, which sees
 `PATH` and knows nothing about your aliases. Hydra writes its own path into a run's face config,
 so a run works either way, but `hydra` typed at a prompt needs the symlink.
 
@@ -80,6 +84,19 @@ tests.
 ## Ports
 
 Hydra is measured on macOS. Linux compiles and runs the test suite in CI since builds 315 and 331.
+CI on Linux skips the seatbelt tests by the `sandbox` substring and nine more by name, the ones a
+Linux machine has not measured yet. `.github/workflows/ci.yml` says why each one is skipped.
+
+- `a_long_frame_survives_being_split_across_reads` and
+  `a_grandchild_holding_the_slave_closes_the_record_within_the_deadline`, two pty tests.
+- `lgamma_is_cpythons_and_not_the_c_librarys`, `the_ranking_arithmetic_matches_python`,
+  `math_unary_and_sum_match_cpython_hashes`,
+  `the_square_the_root_and_log1p_of_a_count_match_cpython_hashes`,
+  `the_baseline_trains_reports_and_scores_as_the_python_did`,
+  `collect_writes_what_the_python_wrote` and
+  `the_monitor_reads_trains_and_scores_as_the_python_did`. These seven compare bit for bit against
+  CPython arithmetic recorded on an arm64 Mac, and glibc differs in the last bit.
+
 Since builds 318a and 318b a Linux launch runs under bubblewrap, composed from the seatbelt's rules.
 That needs `bwrap` on `PATH` and unprivileged user namespaces open. Without both, `standard` and
 `permissive` refuse to launch and `judge` runs with no sandbox. In Docker, bwrap also needs
