@@ -38,9 +38,10 @@ too: `admits` for `admit` would otherwise parse and admit the server to nothing.
 ## What `admit` does and does not do
 
 It decides which runs are handed the server. It does not decide whether they may call it: the
-delegation policy does that, and `mcp_call` is granted by `permissive` alone. So a server admitted
-to `standard` starts, its tools reach the model, and the gate refuses every call to it. Admitting a
-server to a policy that cannot call it costs a process and some context, and buys nothing.
+delegation policy does that. `permissive` grants `mcp_call` for every server, and `standard`
+for `hydra` alone. So a server admitted to `standard` under any other name starts, its tools
+reach the model, and the gate refuses every call to it. Admitting a server to a policy that
+cannot call it costs a process and some context, and buys nothing.
 
 `judge` is narrower still. Harness spec 6.7 gives a `judge` run `--restricted` and no
 `--mcp-config`, so nothing written here reaches it. A server admitted to `judge` fails the launch
