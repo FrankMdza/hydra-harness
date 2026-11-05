@@ -35,3 +35,23 @@ Built on 2026-11-01.
 For the human's acceptance: run one gated `hydra run --interactive --policy standard` session for about 30 minutes, with `shasum -a 256 ~/.claude.json ~/.claude/history.jsonl` before and after, and confirm both shas match and the session worked throughout. Also run `cargo nextest run --release -p hydra --test sandbox_copilot` outside any seatbelt so the two live probes actually run.
 
 Measured by the session on 2026-11-01, on macOS outside a seatbelt. `under_the_copilot_profile_neither_claude_file_is_writable` passed, its control write landed and all six writes were refused. With the two regex allows put back in `copilot_block`, it failed: "a write to .../.claude.json was not refused: rc=0". The suite ran 1546 tests, all passed, 4 skipped, and the doctests passed. The human's 30-minute gated session is still to do.
+
+**Acceptance, automated, 2026-11-05.** The human asked the session to automate the 30-minute
+check. An `expect` script drove one gated `hydra run --interactive --provider claude --model
+claude-haiku-5-5 --policy standard` session, run `01a1ac98-c4a1`, from 11:44 to 11:52 local time:
+ten prompts, each asking for a file in the worktree. Shas could not be compared, because the
+session that ran the script is an ungated `claude` and writes both files itself. The check read
+the kernel's sandbox log for the session's window instead.
+
+- All ten files landed, so the session worked throughout.
+- 32 denials, all from the gated child: 11 `file-write-create` on `~/.claude.json.lock`, 9 on
+  `~/.claude.json.tmp.*` (Claude's atomic rewrite of `~/.claude.json`), and 12 `file-write-data`
+  on `~/.claude/history.jsonl`. No allow on either file.
+
+The script is in the session's scratchpad, not the repository. A second, longer session with real
+work follows.
+
+The second session, run `01a1aca1-2a45` on `claude-opus-5-5`, built a prototype of build 382's
+crate in its worktree: two prompts, about 2.1M tokens, `cargo test -p hydra-manifest-sign` 7 of 7.
+Its window shows 27 denials on the same files (20 `file-write-create`, 7 `file-write-data`) and
+no allow. The prototype stays on the run's branch until it is reviewed under 382.
