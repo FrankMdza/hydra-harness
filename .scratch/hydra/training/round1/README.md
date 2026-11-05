@@ -51,3 +51,5 @@ outside `~/hydra` before an export with tasks leaves the machine.
 Build 290 (the task crosses) multiplies the usable runs. Round two wants a held-out set big enough
 to tell a prior from a skill, a per-tool score instead of a total, and a multi-turn check where
 reading before editing counts as right.
+
+Round two's preflight is build 380; its exclusion list is `../round2/exclude-private-repo.txt`.

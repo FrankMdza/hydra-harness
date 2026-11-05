@@ -363,6 +363,8 @@ Constraints for every ticket below. Reopening one of these is a scope change, no
 - 131 - withheld: a lock inside a private repository.
 - [99 - The gated copilot can still write `~/.claude.json`](issues/99-the-gated-copilot-can-still-write-claude-json.md): resolved 2026-11-01 by map 134's panel. Measured that `claude` runs without writing it; deny both files; build 378.
 - [134 - The public gate](issues/134-the-public-gate.md): resolved 2026-11-01 by a three-seat panel the human asked for. 99 fix before, 110 and 114 stated; the human's list before publication is in the answer.
+- [137 - The lab's next arc](issues/137-the-lab-s-next-arc-cloud-experts-and-post-quantum.md): resolved 2026-11-04 by the human on a three-seat panel. Training only in the cloud, base plus adapters first, ML-DSA provenance first; from scratch is map 138, an own post-quantum system is map 139; builds 380 to 383.
+- [140 - Two videos: weight editing and a sliced agent runtime](issues/140-two-videos-weight-editing-and-a-sliced-agent-runtime.md): resolved 2026-11-04 by the human on a three-seat panel. Weight editing becomes an arm of 386, Infinity lends ideas only, measure the waiting parents first; builds 389 and 390, map 141.
 
 ## Not yet specified
 
