@@ -357,3 +357,133 @@ fn session_id_is_read_off_the_stream_when_line_zero_is_null() {
 fn opening(path: &std::path::Path) -> Value {
     hydra::live::opening_line(path).unwrap().unwrap()
 }
+
+/// A record for the lineage tests, build ticket 389: line 0 with the parent edge
+/// on the envelope (contract 4) and the depth and policy a child reads off it.
+fn lineage_record(
+    layout: &Layout,
+    run_id: &str,
+    parent: Option<&str>,
+    policy: &str,
+    depth: u32,
+) -> PathBuf {
+    let mut text = String::new();
+    for (seq, hydra) in [
+        json!({
+            "type": "run_start",
+            "schema_version": SCHEMA_VERSION,
+            "hydra_version": "0.2.0",
+            "command": "run",
+            "launch_mode": "recorded",
+            "provider_version": "stub",
+            "provider_session_id": "sess-lineage",
+            "task": "first turn",
+            "policy": policy,
+            "policy_sha": "0000000000000000000000000000000000000000000000000000000000000000",
+            "cwd": "/tmp",
+            "worktree": null,
+            "depth": depth,
+            "pid": null,
+            "process_start_time": null,
+            "subscription": "anthropic",
+        }),
+        json!({"type": "run_end", "exit_code": 0, "body_source": "stream"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut line = serde_json::from_str::<Value>(&envelope(
+            run_id,
+            seq as u64,
+            "claude",
+            Some("haiku"),
+            hydra,
+        ))
+        .unwrap();
+        line["parent_run_id"] = json!(parent);
+        text.push_str(&line.to_string());
+        text.push('\n');
+    }
+    let path = layout.run_file(run_id);
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+const ROOT: &str = "01a07600-0000-7000-8000-000000038901";
+const MIDDLE: &str = "01a07600-0000-7000-8000-000000038902";
+const DEEPEST: &str = "01a07600-0000-7000-8000-000000038903";
+const RESUMED: &str = "01a07600-0000-7000-8000-000000038904";
+const RESUMED_AGAIN: &str = "01a07600-0000-7000-8000-000000038905";
+
+#[test]
+fn a_resumed_depth_two_child_keeps_its_depth_and_cannot_delegate() {
+    // Build ticket 389. `hydra resume` launches with no parent, so before the fix
+    // a depth 2 child came back at depth 0 and could delegate two more levels.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    lineage_record(&layout, ROOT, None, "standard", 0);
+    lineage_record(&layout, MIDDLE, Some(ROOT), "standard", 1);
+    lineage_record(&layout, DEEPEST, Some(MIDDLE), "standard", 2);
+
+    let mut request = resume_request(DEEPEST, "sess-lineage");
+    request.run_id = Some(RESUMED.to_string());
+    let lineage = Lineage::for_request(&layout, &request).unwrap();
+    assert_eq!(lineage.depth, 2, "a resume continues the run, at its depth");
+    // Contract 4: the edge is what a parent writes at spawn, and no parent
+    // spawned this one, so the resumed run's own record carries none.
+    assert_eq!(lineage.parent_run_id(), None);
+
+    // Line 0 of the resumed run, written by the path a launch that stopped early
+    // takes, so the depth on disk is the one the launch computed.
+    assert!(
+        hydra::run::record_unlaunched(&layout, &request, policies.sha(), "task", "stub").unwrap()
+    );
+    let start = hydra::live::opening_line(&layout.run_file(RESUMED))
+        .unwrap()
+        .unwrap();
+    assert_eq!(start["depth"], 2, "{start}");
+    assert_eq!(start["resumed_from"], DEEPEST, "{start}");
+
+    // The resumed run's own `delegate` reaches `Lineage::of` with it as parent.
+    let err = Lineage::of(&layout, Some(RESUMED)).unwrap_err();
+    let said = err.to_string();
+    assert!(said.contains(RESUMED), "{said}");
+    assert!(said.contains("the cap is 2"), "{said}");
+
+    // A resume of a resume reads the same depth off the chain.
+    let mut again = resume_request(RESUMED, "sess-lineage");
+    again.run_id = Some(RESUMED_AGAIN.to_string());
+    assert_eq!(Lineage::for_request(&layout, &again).unwrap().depth, 2);
+}
+
+#[test]
+fn a_resumed_child_of_a_read_only_parent_asking_for_permissive_is_refused() {
+    // Build ticket 389, harness spec 7.3. The resume carries the source's own
+    // policy, so a child recorded under `permissive` beneath a `read-only` parent
+    // is checked against that parent as if the parent had spawned it.
+    let (layout, _root) = layout();
+    let policies = PolicySet::discover().unwrap();
+    lineage_record(&layout, ROOT, None, "read-only", 0);
+    lineage_record(&layout, MIDDLE, Some(ROOT), "permissive", 1);
+
+    let mut request = resume_request(MIDDLE, "sess-lineage");
+    request.policy = "permissive".to_string();
+    let lineage = Lineage::for_request(&layout, &request).unwrap();
+    let remediation = lineage
+        .narrowing(&policies, &request.policy)
+        .unwrap()
+        .expect("permissive is wider than read-only, resumed or spawned");
+    assert_eq!(lineage.depth, 1);
+    assert!(remediation.contains("read-only"), "{remediation}");
+    assert!(remediation.contains("permissive"), "{remediation}");
+    assert!(remediation.contains(ROOT), "{remediation}");
+
+    // The same child resumed under a policy its parent contains passes.
+    request.policy = "read-only".to_string();
+    assert!(
+        lineage
+            .narrowing(&policies, &request.policy)
+            .unwrap()
+            .is_none()
+    );
+}

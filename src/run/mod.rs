@@ -328,7 +328,7 @@ fn reserve_on_layout(
     // parent's own record is the only thing that says how deep this child is and
     // what policy bounds it, so a `--parent` this machine has no record of is
     // refused here rather than launched bounded by nothing.
-    let lineage = Lineage::of(&layout, request.parent.as_deref())?;
+    let lineage = Lineage::for_request(&layout, request)?;
     let run_id = request
         .run_id
         .clone()

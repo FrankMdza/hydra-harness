@@ -5199,6 +5199,24 @@ own session id. `run_start` carries `command` and `resumed_from`, the row contra
 on 2026-09-08. The source record is never rewritten, and the continuation is a run of its own
 with a fresh id, worktree and gate.
 
+**A resumed run keeps its source's depth and its source's bound, since build ticket 389.**
+Before it, `resume_in` passed `parent: None` and `Lineage::of` read that as a human at depth
+0, so a resumed depth 2 child could delegate two more levels and was checked against no
+policy at all. `Lineage::for_request` now handles a request with `resumed_from` and no
+`--parent`: it reads the source's line 0, and if the envelope carries a `parent_run_id` it
+runs `Lineage::of` on that parent, so the depth is the parent's plus one and 7.3's narrowing
+compares the resumed policy against the parent's, as if the parent had spawned the resume.
+A source with no edge that was itself resumed is followed back through `resumed_from`, with
+a loop refused, and a chain that ends at a run a human started takes that run's depth and no
+bound. No field changes meaning. The resumed run's own record still writes no
+`parent_run_id` and no `parent_policy`, because contract 4 makes the edge the parent's to
+write at spawn, and the narrowing remediation says "the parent of the run this resumes".
+Two consequences follow from reading the parent's record: a resume whose original parent's
+record is gone is refused the way a spawn naming that parent would be, and a resume of a
+child already at depth 2 still launches, because the cap bounds the resume's children, not
+the resume. `tests/resume.rs` holds both tests, and both fail with the resume branch
+disabled.
+
 **The flags are measured on the four binaries**: `claude --resume <session-id>`,
 `cursor-agent --resume <chatId>`, `agy --conversation <id>`, inserted before the task
 string on the first two and at the front of the argv on `agy`, and `codex exec resume

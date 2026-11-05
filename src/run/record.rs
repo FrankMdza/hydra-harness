@@ -64,7 +64,7 @@ pub fn record_unlaunched(
         .run_id
         .as_deref()
         .context("a run that never launched still needs the id it was minted")?;
-    let lineage = Lineage::of(layout, request.parent.as_deref())?;
+    let lineage = Lineage::for_request(layout, request)?;
     let cwd = request.working_dir.clone().unwrap_or_default();
     let line_zero = serde_json::to_value(run_start(
         request,

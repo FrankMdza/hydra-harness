@@ -15,8 +15,14 @@ use super::*;
 /// carry.
 #[derive(Debug)]
 pub struct Lineage {
+    /// The run whose policy bounds this one, 7.3.
     parent: Option<Parent>,
-    /// The parent's depth plus one, and 0 for a run a human started.
+    /// Whether `parent` spawned this run. `false` on a resume, build ticket 389:
+    /// the bound is the original parent's, and the edge contract 4 makes the
+    /// parent write at spawn is not there, because no parent spawned the resume.
+    spawned: bool,
+    /// The parent's depth plus one, and 0 for a run a human started. A resume
+    /// continues its source at the source's depth.
     pub depth: u32,
 }
 
@@ -43,6 +49,7 @@ impl Lineage {
         let Some(parent) = parent else {
             return Ok(Self {
                 parent: None,
+                spawned: false,
                 depth: 0,
             });
         };
@@ -102,17 +109,91 @@ impl Lineage {
                 run_id: parent.to_string(),
                 policy,
             }),
+            spawned: true,
             depth: depth + 1,
         })
     }
 
-    pub fn parent_run_id(&self) -> Option<&str> {
-        self.parent.as_ref().map(|parent| parent.run_id.as_str())
+    /// The lineage of the launch `request` describes, a spawn's or a resume's.
+    ///
+    /// **A resume continues its source, so it sits where the source sat.** Build
+    /// ticket 389: `hydra resume` launches with no `--parent`, and read through
+    /// [`Lineage::of`] alone a resumed depth 2 child came back at depth 0, two
+    /// levels under the cap and bounded by nothing. The source's line 0 has both
+    /// facts. Its envelope's `parent_run_id` names the run that bounds it, and
+    /// the resume is checked against that run as if the run had spawned it; a
+    /// source that was itself resumed carries no edge, so `resumed_from` is
+    /// followed back to the run that was spawned. The resumed run's own record
+    /// still writes no `parent_run_id` and no `parent_policy`, because contract 4
+    /// makes the edge the parent's to write at spawn and no parent spawned it.
+    pub fn for_request(layout: &Layout, request: &Request) -> Result<Self> {
+        let (Some(source), None) = (request.resumed_from.as_deref(), request.parent.as_deref())
+        else {
+            return Self::of(layout, request.parent.as_deref());
+        };
+
+        let mut current = source.to_string();
+        let mut seen = std::collections::HashSet::new();
+        loop {
+            if !seen.insert(current.clone()) {
+                anyhow::bail!(
+                    "run {source}'s `resumed_from` chain comes back to {current}, so where \
+                     the run sits in its tree cannot be read and the resume is refused."
+                );
+            }
+            let run_file = layout.run_file(&current);
+            let envelope = crate::live::first_line(&run_file)?
+                .and_then(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+                .filter(|envelope| envelope["hydra"]["type"].as_str() == Some("run_start"));
+            let Some(envelope) = envelope else {
+                anyhow::bail!(
+                    "there is no run_start at {}, so how deep resumed run {source} sits and \
+                     what policy bounds it cannot be read.",
+                    run_file.display()
+                );
+            };
+            if let Some(parent) = envelope["parent_run_id"].as_str() {
+                let mut lineage = Self::of(layout, Some(parent))?;
+                lineage.spawned = false;
+                return Ok(lineage);
+            }
+            match envelope["hydra"]["resumed_from"].as_str() {
+                Some(previous) => current = previous.to_string(),
+                None => {
+                    // A run a human started, or a harness pass: no bound, and its
+                    // own depth, which is 0 on every record this build writes.
+                    let depth = envelope["hydra"]["depth"]
+                        .as_u64()
+                        .and_then(|d| u32::try_from(d).ok())
+                        .with_context(|| {
+                            format!(
+                                "run {current} has no usable depth on its record, so resumed \
+                                 run {source}'s depth cannot be read"
+                            )
+                        })?;
+                    return Ok(Self {
+                        parent: None,
+                        spawned: false,
+                        depth,
+                    });
+                }
+            }
+        }
     }
 
+    /// The edge contract 4 writes, `None` on a resume.
+    pub fn parent_run_id(&self) -> Option<&str> {
+        self.parent
+            .as_ref()
+            .filter(|_| self.spawned)
+            .map(|parent| parent.run_id.as_str())
+    }
+
+    /// Contract 5.1's `parent_policy`, absent where the edge is.
     pub fn parent_policy(&self) -> Option<&str> {
         self.parent
             .as_ref()
+            .filter(|_| self.spawned)
             .and_then(|parent| parent.policy.as_deref())
     }
 
@@ -161,9 +242,14 @@ impl Lineage {
         };
         Ok(Some(format!(
             "{relation}, and harness spec 7.3 never lets a child hold a capability its \
-             parent does not. Run {} is the parent. Ask for `{parent_policy}` or a policy \
+             parent does not. Run {} is the parent{}. Ask for `{parent_policy}` or a policy \
              it contains, or start this work at depth 0 yourself.",
-            parent.run_id
+            parent.run_id,
+            if self.spawned {
+                ""
+            } else {
+                " of the run this resumes"
+            }
         )))
     }
 }
