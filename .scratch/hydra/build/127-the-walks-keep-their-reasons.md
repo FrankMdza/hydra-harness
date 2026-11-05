@@ -16,8 +16,8 @@ scopes once, the `agy` timeout and the codex seat behind the `failed` rule, and 
 
 ## Do
 
-1. `git show d58c003:tests/normalize.rs`, `git show d58c003:tests/outcome.rs` and
-   `git show d58c003:tests/record_contract.rs` hold the originals. For each function in
+1. `git show dacdecc:tests/normalize.rs`, `git show dacdecc:tests/outcome.rs` and
+   `git show dacdecc:tests/record_contract.rs` hold the originals. For each function in
    `src/walk.rs`, find the test body it came from and carry its comments over to the matching
    lines, unchanged unless a comment names something that moved (a test name that is now a
    function, "this test" that is now "this check"). Doc comments on the removed live tests become

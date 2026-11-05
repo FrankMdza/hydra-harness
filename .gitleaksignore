@@ -1,20 +1,20 @@
 # Planted fixtures for the redaction and export tests, and two research notes that quote them.
 # Each line is one finding's fingerprint, so a new secret in the same file still fails a scan.
 # Checked on 2026-11-01: none is a live credential.
-37a99b63f0f53154a4ad21d48010ea4cad22b329:.scratch/hydra/research/19-export-formats-and-redaction.md:generic-api-key:372
-6daad9cf23878a2294938ca353994f1771bf4153:src/export.rs:private-key:789
-6daad9cf23878a2294938ca353994f1771bf4153:tests/export.rs:private-key:598
-794f3c085ef5326042b7782df55953779f73a748:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1262
-794f3c085ef5326042b7782df55953779f73a748:crates/apprentice/tests/record_pairs.py:aws-access-token:396
-85c31f0e48d170d8b92aed89a95a188a61289bbe:integrations/grader/tests/test_redact.py:private-key:48
-85c31f0e48d170d8b92aed89a95a188a61289bbe:integrations/grader/tests/test_redact.py:private-key:63
-85c31f0e48d170d8b92aed89a95a188a61289bbe:integrations/grader/tests/test_redact.py:private-key:72
-d204326ac3ecabc25baa8bedb973d91eb72c66a7:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1320
-d204326ac3ecabc25baa8bedb973d91eb72c66a7:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1321
-d204326ac3ecabc25baa8bedb973d91eb72c66a7:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1342
-e504a4737b33282cff63cab317deed57d1c70a15:crates/grader/tests/fixtures/redact.json:private-key:64
-e504a4737b33282cff63cab317deed57d1c70a15:crates/grader/tests/fixtures/redact.json:private-key:74
-e504a4737b33282cff63cab317deed57d1c70a15:crates/grader/tests/record.py:private-key:69
-e504a4737b33282cff63cab317deed57d1c70a15:crates/grader/tests/record.py:private-key:93
-e504a4737b33282cff63cab317deed57d1c70a15:crates/grader/tests/record.py:private-key:95
-f2561c1754d7a4039800b16a0b42a56f64d7f6da:.scratch/hydra/research/129-ready-to-go-public.md:aws-access-token:29
+e84deec7e9e44582338618b18c4336aaf47c3c69:.scratch/hydra/research/19-export-formats-and-redaction.md:generic-api-key:372
+a57fd54dbaadc40eba42f2645f15f64444e2c9d1:src/export.rs:private-key:789
+a57fd54dbaadc40eba42f2645f15f64444e2c9d1:tests/export.rs:private-key:598
+aaa0f8d12767e1bd9363a58de17db9c6dbe148eb:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1262
+aaa0f8d12767e1bd9363a58de17db9c6dbe148eb:crates/apprentice/tests/record_pairs.py:aws-access-token:396
+2c609b01324ffe0924d3708284d0e50a80da538f:integrations/grader/tests/test_redact.py:private-key:48
+2c609b01324ffe0924d3708284d0e50a80da538f:integrations/grader/tests/test_redact.py:private-key:63
+2c609b01324ffe0924d3708284d0e50a80da538f:integrations/grader/tests/test_redact.py:private-key:72
+55a5fbe163d68d92e081ddbabb7577aa5870fe57:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1320
+55a5fbe163d68d92e081ddbabb7577aa5870fe57:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1321
+55a5fbe163d68d92e081ddbabb7577aa5870fe57:crates/apprentice/tests/fixtures/pairs.json:aws-access-token:1342
+b7e496e5e9dcd1718b9fd8cfbf9c0def012593ae:crates/grader/tests/fixtures/redact.json:private-key:64
+b7e496e5e9dcd1718b9fd8cfbf9c0def012593ae:crates/grader/tests/fixtures/redact.json:private-key:74
+b7e496e5e9dcd1718b9fd8cfbf9c0def012593ae:crates/grader/tests/record.py:private-key:69
+b7e496e5e9dcd1718b9fd8cfbf9c0def012593ae:crates/grader/tests/record.py:private-key:93
+b7e496e5e9dcd1718b9fd8cfbf9c0def012593ae:crates/grader/tests/record.py:private-key:95
+d8cc83bd5b63c2b50ac886589c2088123be03667:.scratch/hydra/research/129-ready-to-go-public.md:aws-access-token:29

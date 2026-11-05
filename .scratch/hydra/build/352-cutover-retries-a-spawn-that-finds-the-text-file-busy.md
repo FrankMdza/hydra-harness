@@ -5,11 +5,11 @@ Status: resolved
 Size: haiku
 Blocked by:
 Opened: 2026-10-21, by the session, from the first `ci` run on master after build 351 (run
-39684267088, commit `d204326`): the Linux job failed one test,
+39684267088, commit `55a5fbe`): the Linux job failed one test,
 `a_binary_outside_the_checkout_names_the_two_variables_that_find_the_helper` in
 `crates/grader/tests/cutover.rs`, at line 100 with `Os { code: 26, kind: ExecutableFileBusy,
 message: "Text file busy" }`. Nothing under `crates/grader/` changed since the run that passed
-on `26c3ec8`. The test copies the built binary into its scratch with `std::fs::copy` at line 174
+on `a7bf0d3`. The test copies the built binary into its scratch with `std::fs::copy` at line 174
 and executes the copy through `run` at line 100. The other tests of the file run on sibling
 threads of the same process, and each one spawns a child. On Linux a child forked between the
 copy's open and its close inherits the write descriptor until its own exec, and an exec of that

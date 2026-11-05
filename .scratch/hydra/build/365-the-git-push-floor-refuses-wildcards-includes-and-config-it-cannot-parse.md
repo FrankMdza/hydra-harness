@@ -6,7 +6,7 @@ Blocked by: 362
 
 ## Objective
 
-Close the push-floor gaps the four-seat review of `2e99a25..05a9e21` found in build 362 and the build 357 code under it. Seats: Opus `01a17e81-3770`, GPT `01a17e81-cf35`, Grok `01a17e82-1d83`, Flash `01a17e82-b1a5`. Opus and Grok ran each input below against git 2.55 and the gate. The gate's config scanner is a line reader, not git's parser, so the floor takes the safe side: anything git may read as a push target the scanner cannot judge is refused.
+Close the push-floor gaps the four-seat review of `37525dc..3f5e6a8` found in build 362 and the build 357 code under it. Seats: Opus `01a17e81-3770`, GPT `01a17e81-cf35`, Grok `01a17e82-1d83`, Flash `01a17e82-b1a5`. Opus and Grok ran each input below against git 2.55 and the gate. The gate's config scanner is a line reader, not git's parser, so the floor takes the safe side: anything git may read as a push target the scanner cannot judge is refused.
 
 ## Cases
 

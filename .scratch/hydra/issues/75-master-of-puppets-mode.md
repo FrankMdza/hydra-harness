@@ -38,7 +38,7 @@ answered by the session in the same consolidation, not by the panel.
 Resolved 2026-09-24 by the session. The panel ran: `codex` (2.57M tokens), composer-2.5
 (0.91M) and `agy` gemini-3.1-pro-high (0.50M) on recorded `standard` runs, and opus as an
 Agent-tool subagent (0.18M) because the five-hour window sat at 0.60. The consolidation, with
-every kept citation re-checked against 18a9d72, is
+every kept citation re-checked against cdb9475, is
 [research/75](../research/75-master-of-puppets-panel.md). Raw proposals are outside the repo in
 `~/.claude/handoffs/2026-09-24-puppets-panel/`.
 

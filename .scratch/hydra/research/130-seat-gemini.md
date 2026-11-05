@@ -1,6 +1,6 @@
 # 130, seat Gemini: the docket checked against the tests
 
-Read on 2026-10-15 at `452f637`. Role: the seat that checks the tests. For each item, this memo
+Read on 2026-10-15 at `c5c00f5`. Role: the seat that checks the tests. For each item, this memo
 evaluates whether the test named in `.scratch/hydra/research/130-panel-readings.md` would actually fail
 if the problem were not solved, verifies the source lines cited, and specifies the exact tests
 required before closing each item. Nothing was executed via `cargo` or the test runner; every finding

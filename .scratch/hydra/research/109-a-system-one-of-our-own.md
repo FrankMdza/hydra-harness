@@ -62,7 +62,7 @@ Hydra ya tiene uno pequeño. `baseline.rs` es una logística sobre features del 
 
 ## Pendiente de mí
 
-- **Jev sobre diffs sin commitear.** El commit 376af61 limita la allowlist a este repo con destino a tu proyecto de GCP, y Typesafe no está ahí. Además, revivir `jev ask` revierte el mapa 94. Las dos son decisiones tuyas y van al mapa.
+- **Jev sobre diffs sin commitear.** El commit 839b76f limita la allowlist a este repo con destino a tu proyecto de GCP, y Typesafe no está ahí. Además, revivir `jev ask` revierte el mapa 94. Las dos son decisiones tuyas y van al mapa.
 - **Destilación.** Leer el MCA de Typesafe antes de entrenar con sus respuestas.
 - **El ticket.** La sesión tiene que escribir el `## Answer` del 109. Yo no edité nada.
 
@@ -73,7 +73,7 @@ Nada. Ningún archivo editado, ningún commit, ninguna llamada a Jev.
 ## Encontrado
 
 - Los límites de Jev cambiaron respecto a la investigación 81.
-- `IMPLEMENTATION.md`, línea 698, dice que `config/export-allowlist.json` no existe. Existe desde el commit 376af61.
+- `IMPLEMENTATION.md`, línea 698, dice que `config/export-allowlist.json` no existe. Existe desde el commit 839b76f.
 - Las fuentes secundarias no coinciden en la cifra de Jev frente a Laya. Una da 0,857 y otra 0,727. No abrí la model card.
 - El ticket 109 y el 81 escriben "Diego Almeida". La investigación 81 dice Diogo.
 - No pude comprobar tres cosas: las 350 líneas del export, que viven fuera del worktree, los créditos gratis de Jev y la latencia actual.

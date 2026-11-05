@@ -27,7 +27,7 @@ and `hy.zsh` name `puppets.py`.
      the `review` event is in the log, the command exits 1, `--no-open` never prints `hunk show
      <branch>`, and a retry sits the panel again. When the pusher cannot start, say so on stderr
      and still print the command or exec Hunk; the review is recorded either way.
-1. The session ran every differential test and the ignored real-log test on master at `e4c9447`
+1. The session ran every differential test and the ignored real-log test on master at `e1d5b3b`
    on 2026-10-01, all green (62 unit, 5 in the binary, 18 differential, the real-log test), and
    one real launch, recorded below. Run them once more yourself before you delete anything.
 2. The cockpit runs `hydra-puppets` (found beside the `hydra` binary, then on `PATH`) wherever it

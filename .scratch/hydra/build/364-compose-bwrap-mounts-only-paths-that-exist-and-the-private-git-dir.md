@@ -6,7 +6,7 @@ Blocked by: 318b
 
 ## Objective
 
-Close the critical Linux finding of the review panel on `2e99a25`, Architect seat `01a17e09-b543-77e3-990c-5f0f95d696aa`. `compose_bwrap` in `src/sandbox.rs` turns every `rules_of` rule into `--bind SRC SRC` or `--ro-bind SRC SRC`. Bubblewrap aborts with `Can't find source path` when SRC does not exist at launch, and SBPL on macOS never cared, because it matches a path when the process opens it. On a clean launch several sources do not exist yet, so the first bwrap launch on a real Linux host fails before the provider starts.
+Close the critical Linux finding of the review panel on `37525dc`, Architect seat `01a17e09-b543-77e3-990c-5f0f95d696aa`. `compose_bwrap` in `src/sandbox.rs` turns every `rules_of` rule into `--bind SRC SRC` or `--ro-bind SRC SRC`. Bubblewrap aborts with `Can't find source path` when SRC does not exist at launch, and SBPL on macOS never cared, because it matches a path when the process opens it. On a clean launch several sources do not exist yet, so the first bwrap launch on a real Linux host fails before the provider starts.
 
 ## Problem
 

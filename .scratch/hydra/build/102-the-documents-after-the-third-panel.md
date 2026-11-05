@@ -25,7 +25,7 @@ Every sentence changed is checked against the code, and the counts are dated.
 
 Built on 2026-09-24 by a Claude Code subagent on Opus 5.5 in its own worktree, not through
 `hydra run`. No source, test, config or policy file changed. Each proposed sentence was checked
-against master at `531423c` before it went in; where 98, 99 and 103 differ from 105 and 106, the
+against master at `ceded7a` before it went in; where 98, 99 and 103 differ from 105 and 106, the
 later ticket's text is what landed.
 
 Per file:

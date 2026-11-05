@@ -6,8 +6,8 @@ Blocked by:
 
 ## What
 
-A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 196 (`9d9d836`,
-`79b43b6`), the cutover of Master of Puppets to Rust. It confirmed that the grader writes nothing
+A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 196 (`f4019a0`,
+`16229a3`), the cutover of Master of Puppets to Rust. It confirmed that the grader writes nothing
 when `hydra-puppets show` fails, that `labels.py` never searches `PATH`, and that no recorded
 fixture is a failure of the recorder. Three defects are left, the first a way for a gated run's
 environment to choose the binary a human's approval runs.

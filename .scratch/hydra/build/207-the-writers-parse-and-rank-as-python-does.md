@@ -6,7 +6,7 @@ Blocked by: 195
 
 ## What
 
-A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of build 194 (`e285b00`). It found no
+A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of build 194 (`e151e1b`). It found no
 approval the two implementations decide differently apart from item 1, no fence-extraction
 mismatch in 100,000 constructed plans, and the same races in both for `verdict`, `tasks`, `assign`
 and `reconcile` (each folds before the lock and appends without rechecking; that is the Python's

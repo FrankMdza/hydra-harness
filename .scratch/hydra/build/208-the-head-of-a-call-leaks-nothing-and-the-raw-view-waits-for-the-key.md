@@ -6,7 +6,7 @@ Blocked by:
 
 ## What
 
-A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 206 (`1112d0c`). Map
+A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 206 (`076e030`). Map
 ticket 92 says a default row that shows a secret blocks 206's release, and these do. It found no
 panic in `shell_head`, and the ten-second timer fires with no key and no snapshot.
 

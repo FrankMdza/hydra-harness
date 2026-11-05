@@ -7,7 +7,7 @@ Blocked by:
 ## What
 
 Documentation findings of the second hiring panel, 2026-09-23. Every one was checked against the
-code; the fix is a sentence or a paragraph each. Line numbers are at `fad1b98` and may have moved,
+code; the fix is a sentence or a paragraph each. Line numbers are at `7f6a948` and may have moved,
 so find each by its words. **Before you change a sentence, open the code it describes and confirm
 the new sentence is true.** A corrected sentence that is wrong in a new way is worse than the old one.
 

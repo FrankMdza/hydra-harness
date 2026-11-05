@@ -3,7 +3,7 @@
 Type: grilling
 Status: resolved
 Blocked by:
-Opened: 2026-10-27, by the session, from the review of `05a9e21..435f156` (`research/panel-review-435f156.md`). Grok `01a17eb4-20d0` and Flash `01a17eb4-c167` both named a race: `sweep_private` and the host git after it take no lock, and a descendant the run left behind can write the private git directory, or the worktree, after `run_end` and before or during reap. `IMPLEMENTATION.md` line 42 already says "whether Hydra wants orphans to outlive a run on Linux is undecided". The human, leaving on 2026-10-27, said the panel decides.
+Opened: 2026-10-27, by the session, from the review of `3f5e6a8..95e01a9` (`research/panel-review-435f156.md`). Grok `01a17eb4-20d0` and Flash `01a17eb4-c167` both named a race: `sweep_private` and the host git after it take no lock, and a descendant the run left behind can write the private git directory, or the worktree, after `run_end` and before or during reap. `IMPLEMENTATION.md` line 42 already says "whether Hydra wants orphans to outlive a run on Linux is undecided". The human, leaving on 2026-10-27, said the panel decides.
 
 ## What happens today
 

@@ -4,7 +4,7 @@ Written 2026-09-24 by the session. Four proposers read the same brief
 (`~/.claude/handoffs/2026-09-24-puppets-panel/task-base.txt`) and each wrote one proposal. The
 raw proposals sit beside the brief as `proposal-<provider>.md`, outside the repo like the panel
 reviews before them. Every claim below that names a file and line was checked by the session
-against commit 18a9d72 before it was kept.
+against commit cdb9475 before it was kept.
 
 | Seat | How it ran | Tokens | Words | Read the code? |
 |---|---|---|---|---|

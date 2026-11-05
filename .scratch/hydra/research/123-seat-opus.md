@@ -37,7 +37,7 @@ sub-repository's objects live.
   reader walks up without an error. That matches build 309's account.
 - `git clone --no-local` of a two-commit repository, pointers set: exit 0, the store gained 3
   files, the clone's `.git` has no `objects/`. With the pointers it logs its own history.
-  Without them it logs **this worktree's** history, `2ffd151` and `285bf99`, again with no
+  Without them it logs **this worktree's** history, `59c53e8` and `67aa1f6`, again with no
   error. A run that clones a dependency puts the whole pack in its store, and reap imports it
   into the parent, up to `RUN_STORE_IMPORT_CAP`, 1 GiB.
 - `git clone` of a local path, pointers set and the source outside the alternates: exit 128,

@@ -840,7 +840,7 @@ the full deny list the section above describes. Five of the original seven are r
 directories: `policies/`, `~/hydra/runs/`, the per-spawn gate script, `config/preamble.md` from
 ticket 02 and `config/mcp.md` from ticket 08. The other two are named at
 `config/env-allowlist.json` and `config/export-allowlist.json`. The second exists since
-2026-10-03 (`376af61`, the human's: this repository only, to his own cloud project for
+2026-10-03 (`839b76f`, the human's: this repository only, to his own cloud project for
 training); the first does not. The environment allowlist is still Rust code in `src/env.rs`,
 which 15.2 protects at admission rather than at run time, so the config the table means has no
 file. Denying a write to a path that holds nothing is the same denial it will be the day the
@@ -5591,7 +5591,7 @@ and `codex` in 28k, its first answer as a judge, a bare JSON object with no pros
 judges came out `gated`, `cursor-agent` and `agy`, the way judges on those providers have since
 pass seven, because `judge` grants nothing and both try a read before answering. The patch sits on
 `rungs/01a0c4b4-81ec-7752-ab39-451ff5dfc144`, spec 4.11, and nothing here merges it. The human
-did, on 2026-09-21, as commit 24cade6: the two files taken off the branch, two lines, the first
+did, on 2026-09-21, as commit e0c782b: the two files taken off the branch, two lines, the first
 change to land through rung two. A plain `git merge` of a pass branch conflicts, because the
 branch carries the proposer's whole worktree as it was seeded, so the merge was a checkout of
 the files the panel judged; the branch stays, since git does not see it as merged.
@@ -6248,7 +6248,7 @@ Out of scope for this slice, and each one has a document that already says what 
   build ticket 36, and ten passes have run: the sixth reached the panel and was blocked, and
   the tenth, on 2026-09-21, was offered by all four judges, so `rungs/<pass-id>` and an
   `ApprovedPatch` built from a real verdict exist now. The section above says what each pass
-  found. Spec 4.11's merge is the human's, and the first one is commit 24cade6, the same day.
+  found. Spec 4.11's merge is the human's, and the first one is commit e0c782b, the same day.
 
 ## What the hiring-panel review of 2026-09-22 changed
 

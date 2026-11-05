@@ -6,7 +6,7 @@ Blocked by: 185
 
 ## What
 
-A read-only review by `codex` on 2026-09-30 of build 185 (`03c0dac`) confirmed its fixes and found
+A read-only review by `codex` on 2026-09-30 of build 185 (`2cbc5d2`) confirmed its fixes and found
 two defects with an unterminated last line in a goal log, each reproduced in memory:
 
 1. **A lost approval.** `integrations/puppets/puppets.py` near 342: with a fragment such as

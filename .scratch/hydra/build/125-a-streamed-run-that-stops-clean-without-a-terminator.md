@@ -8,7 +8,7 @@ Blocked by:
 
 Map ticket 80, resolved 2026-09-24. Read its `## Answer` first.
 
-The full suite on `4261426`, run 2026-09-24 at 14:24, is red on one assertion:
+The full suite on `b3ab317`, run 2026-09-24 at 14:24, is red on one assertion:
 
 ```
 thread 'the_recorded_write_denials_are_the_only_gated_runs_on_this_machine' panicked at tests/outcome.rs:1425:13:

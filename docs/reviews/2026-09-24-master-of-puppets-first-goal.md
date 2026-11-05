@@ -56,7 +56,7 @@ Agent tool (the 75 panel's claude seat, 179k; ticket 77's research, 139k), which
 
 - **The security review paid for itself.** Opus found the port of export's OpenAI span rule
   indexing a byte array with character offsets, so a task text with an accent before a key left
-  the key in clear. Every test was ASCII. Fixed in 57fbf73 with accent tests. Read the run's
+  the key in clear. Every test was ASCII. Fixed in 47227b8 with accent tests. Read the run's
   `result_text` for the other findings; the one deferred is build ticket 128.
 - **Composer invents numbers it cannot measure.** The dataset task's README named rebuild
   times of minutes; a gated run cannot read the corpus. The session measured 44.4 s and 15.7 s.

@@ -3,7 +3,7 @@
 Type: grilling
 Status: resolved
 Blocked by:
-Opened: 2026-10-27, by the session, from the four-seat review of `2e99a25..05a9e21` (`research/panel-review-05a9e21.md`, seats `01a17e81-3770`, `01a17e81-cf35`, `01a17e82-1d83`, `01a17e82-b1a5`). Build 364 stopped at both questions because each is a decision. The human, leaving on 2026-10-27: "si necesitas decisiones usa el panel". A four-seat panel answers this one, and the synthesis is in `research/135-synthesis.md`.
+Opened: 2026-10-27, by the session, from the four-seat review of `37525dc..3f5e6a8` (`research/panel-review-05a9e21.md`, seats `01a17e81-3770`, `01a17e81-cf35`, `01a17e82-1d83`, `01a17e82-b1a5`). Build 364 stopped at both questions because each is a decision. The human, leaving on 2026-10-27: "si necesitas decisiones usa el panel". A four-seat panel answers this one, and the synthesis is in `research/135-synthesis.md`.
 
 ## Question 1, the private git directory
 

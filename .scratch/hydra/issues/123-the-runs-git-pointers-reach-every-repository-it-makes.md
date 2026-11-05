@@ -57,7 +57,7 @@ decisiones del panel").
    human's; the session's suggestion is the first, said in reap's output, because a refusal leaves
    the checkout behind as today does.
 3. The suite needs nothing more since build 302. `IMPLEMENTATION.md` carries the measured
-   consequences since 78f9de2. A sentence in `config/preamble.md` is protected and the human's.
+   consequences since 9b044ba. A sentence in `config/preamble.md` is protected and the human's.
 
 Tickets: build 325 (the `tests/cleanup.rs` case, no decision needed), build 326 (reap's
 treatment, after the word).

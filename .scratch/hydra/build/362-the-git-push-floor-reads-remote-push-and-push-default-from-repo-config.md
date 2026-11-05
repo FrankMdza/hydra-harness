@@ -4,7 +4,7 @@ Status: resolved
 
 ## Objective
 
-Close the `git push` floor gap found by the adversarial review of `2e99a25` (`01a17dfa-7a1a-7c01-a9a4-f251f124913b`). Build 357 checked `-c remote.<name>.push=<refspec>` and `-c push.default=matching` passed on the command line, and `bare_push_violation` read `HEAD` and `[branch "<name>"] merge` from `.git/config`. However, a run can write `[remote "origin"] push = HEAD:refs/heads/master` or `[push] default = matching` into the repository config and then run `git push` or `git push origin` with no explicit refspec on the command line.
+Close the `git push` floor gap found by the adversarial review of `37525dc` (`01a17dfa-7a1a-7c01-a9a4-f251f124913b`). Build 357 checked `-c remote.<name>.push=<refspec>` and `-c push.default=matching` passed on the command line, and `bare_push_violation` read `HEAD` and `[branch "<name>"] merge` from `.git/config`. However, a run can write `[remote "origin"] push = HEAD:refs/heads/master` or `[push] default = matching` into the repository config and then run `git push` or `git push origin` with no explicit refspec on the command line.
 
 ## Problem
 

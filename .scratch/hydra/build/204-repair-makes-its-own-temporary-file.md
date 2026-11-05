@@ -6,7 +6,7 @@ Blocked by: 194
 
 ## What
 
-A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of build 199 (`3a8603a`). It found no
+A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of build 199 (`02f7abd`). It found no
 schedule of cooperating writers and repairs that loses a line, matched its own port of
 `pysort.rs` against `sorted` on 2,600 lists, and matched all 3,306 boundary points of
 `printable.rs` against `str.isprintable`. Three findings are left. It waits on 194 only because

@@ -6,7 +6,7 @@ Blocked by: 171
 
 ## What
 
-A read-only review by `codex` on 2026-09-30 of build 169 (`3bc6327`) found three defects in
+A read-only review by `codex` on 2026-09-30 of build 169 (`c53b40b`) found three defects in
 `hydra stop`, each derived from the code and not yet reproduced. The review is in the human's
 notes; the three are restated here in full.
 

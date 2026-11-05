@@ -1,6 +1,6 @@
 # 130, seat Opus: the docket read against the code
 
-Read on 2026-10-15 at `452f637`, which is `e10c63a` plus the commit that opened map 130. Nothing
+Read on 2026-10-15 at `c5c00f5`, which is `02927a8` plus the commit that opened map 130. Nothing
 was built or run; every claim below names the file it came from. "Readings" means
 `.scratch/hydra/research/130-panel-readings.md`.
 
@@ -314,7 +314,7 @@ needs a 0.3.0 tag, not 0.1.0, plus two more untracked files on its ignore line.
 
 - The CI log of run 38695261071: the count of 51 and each group's message. GitHub was not reached.
 - Build 316's 27 files. They sit uncommitted in another worktree, outside this one; its branch
-  holds no commit past `14a8746`.
+  holds no commit past `381301f`.
 - Which line of `gate.py` raises `ValueError` on Python 3.12 and not on 3.9.
 - Whether the tee or the test is wrong in group e; group f entirely.
 - That the unfused x86-64 branch is what produced `1.7917594692280554`.

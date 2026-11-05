@@ -7,7 +7,7 @@ Blocked by:
 ## What
 
 The corpus walk `no_record_on_this_machine_shows_a_gate_that_leaked_or_stayed_silent` in
-`tests/normalize.rs` went red on 2026-09-24 on master `89485ff`. The record it names is a
+`tests/normalize.rs` went red on 2026-09-24 on master `c83c60c`. The record it names is a
 `cursor-agent` run on `composer-2.5` under `standard`, launched at 08:37 UTC that day on
 cursor-agent `2026.09.23-86fc751` (`hydra doctor` says the last measured build was
 `2026.09.18-9a7762b`). The panic:

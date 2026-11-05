@@ -79,8 +79,8 @@ The session updated `CLAUDE.md`'s test list and added the walk to
 green `cargo test` and prints red if either fails.
 
 Where the code is: `git apply --3way` staged the diff in the shared index, and a concurrent
-session's commit `88f59b4` ("puppets: a plan approval is about the plan...") took the staged
+session's commit `c8ce64e` ("puppets: a plan approval is about the plan...") took the staged
 files with its own: `src/cli.rs`, `src/doctor.rs`, `src/lib.rs`, `src/main.rs`, the three test
 files, `README.md`, `IMPLEMENTATION.md` and `.github/workflows/ci.yml`. `06b3987` holds
 `src/walk.rs`, `tests/doctor.rs` and the tickets. Read both together for build 126. The session
-did not rewrite `88f59b4`, which belongs to the other session.
+did not rewrite `c8ce64e`, which belongs to the other session.

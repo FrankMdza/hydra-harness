@@ -1,6 +1,6 @@
 # Fourth panel, `claude` reader, 2026-09-24
 
-Reviewed commit `ca2020f` in a worktree Hydra launched under `standard`. No build, no test run, no
+Reviewed commit `85df6f6` in a worktree Hydra launched under `standard`. No build, no test run, no
 provider launched. Everything below was checked by reading the cited lines, and the Method section
 says how much of the repository that covers.
 
@@ -31,7 +31,7 @@ functions.
 | Security and threat-model honesty | 7 | `SECURITY.md:18-56` and `128-134` state the shell residual, the reachable `~/.ssh` and the lethal trifecta before anyone asks, which is rare. But `SECURITY.md:117-118` describes a window and a scrub that `src/worktree.rs:452-475` replaced, and `integrations/puppets/README.md:3` says "human approvals enforced" for approvals any process can append (`puppets.py:706-733`). |
 | Documentation and communication | 6 | The prose is plain and the numbers are mostly dated and sourced (`README.md:14-17`, `87-91`). The drift is back, though: the authorship table at `README.md:247-258` leaves out resolved tickets 108, 109 and 112, and `IMPLEMENTATION.md:3150-3157` and `3181-3184` describe code that ticket 112 changed. At 4,123 lines, `IMPLEMENTATION.md` is a changelog more than a document a stranger can use. |
 | Depth and originality of the harness idea | 9 | `src/outcome.rs:122-298` derives nine outcomes in a stated order with a separate confidence field, and `src/worktree.rs:442-527` gives each run a private git object store that reap imports through `index-pack --strict`, so a forged pack cannot rename an object. I have not seen either in the tools `README.md:170-176` compares against. |
-| Engineering process | 7 | Build tickets 98, 103 and 105 each have a section on what the ticket assumed that turned out false, and 105 found a hole in 98's merged profile (`src/rungs/evolve.rs:1002-1008`). That is a real loop. Against it, 112 is `Status: resolved` with its verification owed to ticket 114, and 42 commits landed on 2026-09-24, several of them pixel-art mascots (`git show --stat be8b03e`). |
+| Engineering process | 7 | Build tickets 98, 103 and 105 each have a section on what the ticket assumed that turned out false, and 105 found a hole in 98's merged profile (`src/rungs/evolve.rs:1002-1008`). That is a real loop. Against it, 112 is `Status: resolved` with its verification owed to ticket 114, and 42 commits landed on 2026-09-24, several of them pixel-art mascots (`git show --stat 930325c`). |
 
 ## Strengths
 
@@ -314,7 +314,7 @@ Engineering in its log-and-fold shape, theatre in "approvals enforced". I would 
 Read in full: `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CLAUDE.md`; build tickets 97 to 106
 and 112 to 115 (Outcomes in full, some Done-when sections); map tickets 75, 76 and 77, and the
 Answer sections of 72 to 74; `integrations/puppets/README.md`, `puppets.py`; `src/watch.rs`
-`detach`; `src/sandbox.rs`; the diff of `3c454ec` for `src/worktree.rs`.
+`detach`; `src/sandbox.rs`; the diff of `069c05b` for `src/worktree.rs`.
 
 Read by range: the third panel report, lines 1 to 140 and 280 to 554; `IMPLEMENTATION.md` 1 to
 200, 2088 to 2180, 2888 to 2923, 3113 to 3330 and 3695 to 3730; `docs/harness-spec.md` 7.3, 7.4
@@ -330,7 +330,7 @@ to 800 and 937 to 1094; `src/policy/table.rs` 1 to 140, 160 to 180 and 330 to 47
 
 Skimmed by grep only: `src/skills/mod.rs` (`inject`), `src/paths.rs` (the ASCII refusal),
 `docs/harness-spec.md` headings, `.scratch/hydra/map.md` decisions list, the CI workflow, the
-authorship rows against tickets 107 to 109, and the `git log` from `2e03429` to `ca2020f`.
+authorship rows against tickets 107 to 109, and the `git log` from `59f57bf` to `85df6f6`.
 
 Not read: `src/provider/codex.rs` beyond the login probe lines, `src/normalize/mod.rs`,
 `src/policy/replay.rs`, `src/skills/mod.rs` in full, `docs/run-record-contract.md` sections 1 to 5,

@@ -6,7 +6,7 @@ Blocked by: 172
 
 ## What
 
-A read-only review by `codex` on 2026-09-30 of build 172 (`eaa425a`) found the normalizer refactor
+A read-only review by `codex` on 2026-09-30 of build 172 (`e691dcc`) found the normalizer refactor
 unchanged, byte for byte, and three defects in the header, each checked by arithmetic:
 
 1. **A record that shrinks keeps its old baseline.** `src/cockpit/snapshot.rs` near 365 and 432:

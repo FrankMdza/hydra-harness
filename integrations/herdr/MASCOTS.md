@@ -67,7 +67,7 @@ $M --image "$IMG" --width 60
 ## 4. The ones that are gone from the tree
 
 - Opus's hand-drawn block sprite (11 rows by 36 columns of `▟█▙`): the human called it ugly.
-  It is still in commit ccc7a58 and in the opus proposal beside the panel brief,
+  It is still in commit d1e7a91 and in the opus proposal beside the panel brief,
   `~/.claude/handoffs/2026-09-24-puppets-panel/proposal-claude.md`.
 - The HydraPet web app (React, canvas, GIF studio) lives at github.com/FrankMdza/hydra-mascot,
   not here: `npm install --legacy-peer-deps && npx vite --port 3000`, then open the page.

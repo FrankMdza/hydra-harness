@@ -6,7 +6,7 @@ Blocked by:
 
 ## What
 
-A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 201 (`d697a38`). It
+A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of build 201 (`1c88055`). It
 confirmed the rest of 201 by probe: quoted flag values, `?api_key=...&x=1`, a tab after a colon,
 trailing escapes, nested `$(...)`, and `nonfinite_json` against `json.loads` on a 20,000-line
 fuzz. Six defects are left, and one rule hides more than it should.

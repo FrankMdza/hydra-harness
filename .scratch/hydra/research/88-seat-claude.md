@@ -1,6 +1,6 @@
 # Map ticket 88, seat `architect` (claude)
 
-Read 2026-09-30 from this worktree at 97eb3d5, plus pi.dev and pi-mono's `docs/extensions.md`.
+Read 2026-09-30 from this worktree at 8825acb, plus pi.dev and pi-mono's `docs/extensions.md`.
 
 ### Not confirmed
 

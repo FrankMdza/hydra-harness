@@ -172,7 +172,7 @@ Dates are when the change landed on `master`. Run ids are the evidence.
   write `rungs/<pass-id>` branches and the old `ouroboros/` ones still resolve (2026-09-21,
   build ticket 62).
 - The tenth `evolve` pass is the first the panel offered: four judges, `codex` among them,
-  all pass on a two-word patch, on `rungs/01a0c4b4-81ec`; the human merged it as 24cade6, the
+  all pass on a two-word patch, on `rungs/01a0c4b4-81ec`; the human merged it as e0c782b, the
   first change to land through rung two (2026-09-21).
 - `hydra logs --follow` waits up to two seconds, not one poll, for the closing line after the
   pid reads dead, because a loaded machine can take longer than 100ms between the reap and the

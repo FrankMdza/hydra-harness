@@ -1,19 +1,19 @@
 # Four readers as a hiring panel, 2026-09-23
 
-Reviewed commits `15d0d7a` and `d264867`, and `fad1b98` for the `codex` reader, published on 2026-09-24 as written then.
+Reviewed commits `667acc0` and `15deace`, and `7f6a948` for the `codex` reader, published on 2026-09-24 as written then.
 Build tickets 88 to 96 and 103 under `.scratch/hydra/build/` record what was fixed; the third panel's report rechecks each G row.
 
-The first three reviews were checked against `d264867`, one commit after `15d0d7a`. The `claude`
-reader reviewed `d264867`; the `cursor-agent` and `agy` readers reviewed `15d0d7a`. The one commit
+The first three reviews were checked against `15deace`, one commit after `667acc0`. The `claude`
+reader reviewed `15deace`; the `cursor-agent` and `agy` readers reviewed `667acc0`. The one commit
 between them is the fix for the build 87 regression, G2 below, and changes nothing else a finding
 rests on.
 
-The `codex` reader reported last, and it read `fad1b98`, not `d264867`. Its second attempt started
+The `codex` reader reported last, and it read `7f6a948`, not `15deace`. Its second attempt started
 after build ticket 88 landed, the worktree was seeded from that commit, and its method section says
 so: it found `env_clear` in `src/pty.rs` and the build 88 paragraph in `SECURITY.md`, and it does not
-claim G1. Its findings G41 to G49 are checked against `fad1b98`.
+claim G1. Its findings G41 to G49 are checked against `7f6a948`.
 
-G1 is fixed in `fad1b98` (build ticket 88). `src/pty.rs` now clears the environment before the
+G1 is fixed in `7f6a948` (build ticket 88). `src/pty.rs` now clears the environment before the
 allowlist, `tests/pty_tee.rs::the_child_gets_the_environment_it_is_handed_and_nothing_else` fails
 without it, three providers answered a real launch after it, and `SECURITY.md` states the exposure
 with its dates. G10 and G38 moved with it. The same class is still open on one path, rung two's
@@ -26,12 +26,12 @@ admission steps, G43.
 | `claude` | Opus | advance to technical interview | mid-level | The core idea is in the code, but the first security claim in the README is false: the environment allowlist is built and then handed to a pty builder that starts from the watcher's whole environment. | 3,959 words, about 215 file:line citations, read the Rust in large part and the locked `portable-pty` source |
 | `cursor-agent` | Composer 2.5 | advance to technical interview | mid-level, senior only if the candidate can explain `src/policy/replay.rs:9-17` unprompted | Outcome-from-stream, per-vendor hook dialects and pinned residuals are implemented rather than asserted; the agent authorship table is the main interview risk. | 2,542 words, about 135 file:line citations, read code for the modules it named, did not open `src/pty.rs` or `src/watch.rs` |
 | `agy` | Gemini 3.1 Pro | advance to technical interview | senior | A contract-first harness that derives outcomes from the tool stream shows systems thinking and boundary design. | 1,530 words, 39 citations, all to documents, a single line each; its own method says it did not read the Rust |
-| `codex` | GPT, via the Codex CLI | advance to technical interview | mid-level, not senior ownership of agent isolation | Replay that downgrades a finding when gate identity or scopes cannot back it treats trajectories as evidence with limits, but the git write carve-outs and the gap between the reviewed tree and the committed one break two safety claims. | 3,502 words, about 200 file:line citations, read `src/run.rs`, `gate.py`, `sandbox.rs`, `env.rs` and `resume.rs` in full and traced the rest; reviewed `fad1b98`, 7.4M tokens on its second attempt |
+| `codex` | GPT, via the Codex CLI | advance to technical interview | mid-level, not senior ownership of agent isolation | Replay that downgrades a finding when gate identity or scopes cannot back it treats trajectories as evidence with limits, but the git write carve-outs and the gap between the reviewed tree and the committed one break two safety claims. | 3,502 words, about 200 file:line citations, read `src/run.rs`, `gate.py`, `sandbox.rs`, `env.rs` and `resume.rs` in full and traced the rest; reviewed `7f6a948`, 7.4M tokens on its second attempt |
 
 The `claude` and `codex` reviews carry the panel between them, and they score within one point of
 each other on every axis. `claude` found G1, the defect behind the README's first security claim,
 by reading the dependency's source rather than trusting the comment above the call. `codex` found
-the two defects still open at `fad1b98`, G41 and G42, each of which breaks a sentence the README or
+the two defects still open at `7f6a948`, G41 and G42, each of which breaks a sentence the README or
 `SECURITY.md` states without a caveat, plus G43, the G1 class surviving on the admission path. None
 of the eighteen findings `codex` raised was wrong when checked, and on G26 it corrected `claude`.
 If one review has to be read first now, it is `codex`'s, because its findings are the open ones.
@@ -60,7 +60,7 @@ weighted the same way.
 
 The spreads did not change, because `codex` landed inside the range on every axis. What changed is
 the shape: on security the panel is now two against two, and the split is exactly who read the
-launch and git paths. `claude` scored 5 for G1. `codex` scored 5 at `fad1b98`, with G1 already
+launch and git paths. `claude` scored 5 for G1. `codex` scored 5 at `7f6a948`, with G1 already
 fixed, for G41 and the cwd sentence, G48. The two readers who did not open `src/pty.rs` or
 `src/policy/mod.rs`'s write carve-outs scored 9. On documentation the gap is still volume and
 drift: `claude` counted it in eight places, `codex` in five more, and `agy` did not look. The
@@ -70,14 +70,14 @@ against.
 ## Findings
 
 Every weakness, red flag and "does not hold" claim across the four reviews, deduplicated. The
-check column is mine, made by opening the cited lines at `d264867` for G1 to G40 and at `fad1b98`
+check column is mine, made by opening the cited lines at `15deace` for G1 to G40 and at `7f6a948`
 for G41 to G49 and for the rows the G1 fix moved. Status is real, partly, wrong
 or unconfirmed. Cost is small, under an hour and no decision needed; large; or needs a decision.
 A wrong finding costs nothing and says so.
 
 | Id | What | Raised by | File:line | Kind | Status and my check | Cost |
 |---|---|---|---|---|---|---|
-| G1 | The environment allowlist is not a boundary on recorded launches: the pty child inherits the watcher's whole environment | `claude` | `src/pty.rs:79-82`, `109-117`; `src/watch.rs:103-133`; `portable-pty-0.9.0/src/cmdbuilder.rs:74-86`, `215-224`, `528-536` | bug | Real. `CommandBuilder::new` sets `envs: get_base_env()`, which copies `std::env::vars_os()`; `as_command` clears the std `Command` and then sets that inherited map. `open` never calls `cmd.env_clear()`, and `detach` starts the watcher with no scrub. Every probe path does call `env_clear`, `src/provider/mod.rs:77`, `claude.rs:463`, `cursor.rs:387`, `agy.rs:282`, `interactive.rs:258`, `375`. The comment at `src/env.rs:114-116`, "contract 5.3 records what reached the child", is false for the same reason. Mechanism confirmed by reading; not observed at a live child. Fixed in `fad1b98`: `cmd.env_clear()` at `src/pty.rs:120`, and `tests/pty_tee.rs` plants names the child must not see | large, done in `fad1b98` |
+| G1 | The environment allowlist is not a boundary on recorded launches: the pty child inherits the watcher's whole environment | `claude` | `src/pty.rs:79-82`, `109-117`; `src/watch.rs:103-133`; `portable-pty-0.9.0/src/cmdbuilder.rs:74-86`, `215-224`, `528-536` | bug | Real. `CommandBuilder::new` sets `envs: get_base_env()`, which copies `std::env::vars_os()`; `as_command` clears the std `Command` and then sets that inherited map. `open` never calls `cmd.env_clear()`, and `detach` starts the watcher with no scrub. Every probe path does call `env_clear`, `src/provider/mod.rs:77`, `claude.rs:463`, `cursor.rs:387`, `agy.rs:282`, `interactive.rs:258`, `375`. The comment at `src/env.rs:114-116`, "contract 5.3 records what reached the child", is false for the same reason. Mechanism confirmed by reading; not observed at a live child. Fixed in `7f6a948`: `cmd.env_clear()` at `src/pty.rs:120`, and `tests/pty_tee.rs` plants names the child must not see | large, done in `7f6a948` |
 | G2 | Build 87 refused every `codex` launch with CI green, and the regression test does not go through the call site | `claude` | `src/run.rs:1195`, `1225-1227`; `tests/skills.rs:483-524`; `.scratch/hydra/build/87-codex-reads-a-copy-of-its-skills.md:60-65` | bug, fixed; test gap remains | Real. The test calls `Index::project_scope_without` and `collision::check` directly. `grep` finds `inject_skills` called only from `src/run.rs:637` and `src/interactive.rs:108`, never from a test | small |
 | G3 | `run::run` is one 737-line function with three copied `never_started` blocks, and `refuse` takes eleven positional arguments | `claude` | `src/run.rs:382-1118`, `856-872`, `915-931`, `1026-1037`, `1262-1276` | design smell | Real. The function closes at line 1118; `#[allow(clippy::too_many_arguments)]` sits at 1262 over eleven parameters; `refuse(` appears seven times | large |
 | G4 | Early `?` returns after the worktree exists write no record, against the file's own D10 comment | `claude` | `src/run.rs:586-594`, `619-625`, `637-646`, `829-839`, `987-993`; `src/reap.rs:675` | bug | Real. `worktree::create` runs at 586; `mcp::write_config(...)?`, `inject_skills(...)?` and `write_spawn_config(...)?` then return with no `never_started`. Only `reap::orphan_checkouts` finds the leftovers | large |
@@ -86,15 +86,15 @@ A wrong finding costs nothing and says so.
 | G7 | Ticket counts are stale in two places | `claude`, `codex` | `README.md:246`; `CLAUDE.md:142` | documentation gap | Real. The README says 71 decision tickets, 68 resolved; `.scratch/hydra/issues/` holds 71 files, all `Status: resolved`. `CLAUDE.md:142` still comments the frontier command "67 of 67" while line 28 says 71 of 71 | small |
 | G8 | `IMPLEMENTATION.md` says the cap is a reservation, then eleven lines later that it is "checked and not held" | `cursor-agent`, `codex` | `IMPLEMENTATION.md:3370-3380`, `3386-3391` | documentation gap | Real. Both paragraphs are present in that order | small |
 | G9 | `IMPLEMENTATION.md` still prices replay at a Python process per tool call | `claude` | `IMPLEMENTATION.md:2165-2171`; `src/policy/replay.rs:19-21` | documentation gap | Real. The module doc now says a process per record, one per call only when the batch fails | small |
-| G10 | `IMPLEMENTATION.md` says `HYDRA_ROOT` never reaches a child and that a run can move its children's records | `claude` | `IMPLEMENTATION.md:3735-3744`; `src/run.rs:411-424` | documentation gap | Partly since `fad1b98`. At `d264867` both halves were stale. Since the pty clears the environment, "never reaches a child" is true again for recorded runs; the half about moving children's records is still stale, because `run.rs` refuses the variable inside a seatbelt | small |
+| G10 | `IMPLEMENTATION.md` says `HYDRA_ROOT` never reaches a child and that a run can move its children's records | `claude` | `IMPLEMENTATION.md:3735-3744`; `src/run.rs:411-424` | documentation gap | Partly since `7f6a948`. At `15deace` both halves were stale. Since the pty clears the environment, "never reaches a child" is true again for recorded runs; the half about moving children's records is still stale, because `run.rs` refuses the variable inside a seatbelt | small |
 | G11 | "three providers" survives in code comments and the contract | `claude` | `src/outcome.rs:13`, `456`; `src/policy/gate.py:16`, `364`, `816`; `IMPLEMENTATION.md:51`; `docs/run-record-contract.md:8`, `143`, `686`, `705`, `1112` | documentation gap | Real. `src/skills/mod.rs:414` is a historical statement about ticket 24 and is fine as written; the rest describe today | small |
-| G12 | `tests/corpus/README.md` cites `gate.py` lines that have drifted, and its environment rows cite the wrong test | `claude`, `codex` | `tests/corpus/README.md:13-20` | documentation gap | Real. `gate.py:124` is `fold_ascii`, not `realpath`, which is at 140; `753` is inside `tool_input` handling; `tests/gate.rs:1766` is an `agy` MCP capability test, not the shell residual. `codex` adds that rows A7 and A8 still cite only the `src/env.rs` builder tests, and since `fad1b98` the test that watches the child is in `tests/pty_tee.rs` | small |
+| G12 | `tests/corpus/README.md` cites `gate.py` lines that have drifted, and its environment rows cite the wrong test | `claude`, `codex` | `tests/corpus/README.md:13-20` | documentation gap | Real. `gate.py:124` is `fold_ascii`, not `realpath`, which is at 140; `753` is inside `tool_input` handling; `tests/gate.rs:1766` is an `agy` MCP capability test, not the shell residual. `codex` adds that rows A7 and A8 still cite only the `src/env.rs` builder tests, and since `7f6a948` the test that watches the child is in `tests/pty_tee.rs` | small |
 | G13 | The authorship table stops at ticket 76, and "applied it to master by hand" sits beside tickets whose outcome says an Opus subagent fixed the diff | `claude` | `README.md:216-236`; `.scratch/hydra/build/81-the-cap-is-a-reservation.md` outcome; `87-...md:57-58` | documentation gap | Partly. The table says outright it covers 01 to 76, so nothing is hidden, but builds 77 to 87 include `codex` on 81 and `cursor-agent` on 87, and both outcomes record a subagent fixing the agent's diff in the worktree before the session applied it | small |
 | G14 | Agent authorship dominates the Rust core, so the interview has to separate design ownership from review | `cursor-agent` | `README.md:218-236` | admitted scope limit | Partly. The arithmetic holds, 41 of 76, and the table is a disclosure rather than a defect. It is an interview risk, not a repository flaw | small, interview preparation |
 | G15 | `outcome.rs` says nothing reads the exit status, and the harvested interactive arm does | `claude` | `src/outcome.rs:13`, `185-205` | documentation gap | Real. `end.body["exit_code"]` picks `Completed` on 0 and `Failed` otherwise when a harvested run has no result frame | small |
 | G16 | Provider identity is a string where outcomes are derived, and an unknown refusal code becomes `Gated` | `claude` | `src/outcome.rs:223`, `231`; `src/record/lines.rs:290-302` | design smell | Partly. The string comparisons are real although `Provider` parses the same field in `src/reap.rs:308-310`. The `_ => Outcome::Gated` arm is a documented choice, its comment argues that falling through to `completed` would be worse | small |
 | G17 | Export has no OpenAI key class although `codex` is routed | `claude` | `src/export.rs:495-501`, `638-642` | bug | Real. The five classes are Google, Anthropic, GitHub, Google OAuth and PEM; an OpenAI-style key reaches the entropy warning at best | small |
-| G18 | The export verifier checks the redactor's own prefixes, so an abort means only that the redactor missed; commit `6daad9c` calls these "rules of its own" | `claude`, `cursor-agent`, `codex` | `src/export.rs:629-642`; `SECURITY.md:140-147` | admitted scope limit | Real. The comment at 636-637 says "The prefixes are the redactor's own". `SECURITY.md` states it plainly; the commit subject oversells it | large |
+| G18 | The export verifier checks the redactor's own prefixes, so an abort means only that the redactor missed; commit `a57fd54` calls these "rules of its own" | `claude`, `cursor-agent`, `codex` | `src/export.rs:629-642`; `SECURITY.md:140-147` | admitted scope limit | Real. The comment at 636-637 says "The prefixes are the redactor's own". `SECURITY.md` states it plainly; the commit subject oversells it | large |
 | G19 | The gate's catch-all, the F2 fix, has no test that drives it | `claude`, `cursor-agent` | `src/policy/gate.py:961-975` | admitted scope limit | Real. The comment says no reachable raise was found, "so this handler has no test that drives it" | small, a test that compiles a gate whose `evaluate` raises |
 | G20 | A `codex` hook that dies fails open, measured by hand, with no automated test; a missing interpreter is still open | `cursor-agent`, `claude`, `codex` | `SECURITY.md:119-134`; `src/provider/codex.rs:37-40`; `IMPLEMENTATION.md:3765-3771` | admitted scope limit | Real. Probe p3 of build 48 is the only evidence | large |
 | G21 | CI walks an empty corpus, so the three record walks prove nothing there | `cursor-agent`, `claude`, `codex` | `tests/record_contract.rs:576-584`; `README.md:206-212` | admitted scope limit | Real. Two early `return`s before any assertion; the README says what green CI means | large, a synthetic fixture corpus |
@@ -114,7 +114,7 @@ A wrong finding costs nothing and says so.
 | G35 | The README says `gated` needs one refused call | `agy` | `README.md:21-23` | documentation gap | Wrong. The README says every call; this was first-panel F19, fixed before either commit reviewed here | none |
 | G36 | `evolve` calls `Layout::discover()`, coupling rung two to the developer's machine | `cursor-agent` | `src/rungs/evolve.rs:82` | design smell | Wrong. That is the command's entry point, where every command discovers its layout; the admission steps get a scratch `HYDRA_ROOT`, `IMPLEMENTATION.md:3040-3044` | none |
 | G37 | The README's "86 of 87" contradicts open ticket 80 | `cursor-agent` | `README.md:206-214`; `CLAUDE.md:28` | documentation gap | Wrong. 86 of 87 with 80 open is consistent, and `frontier.py build` prints exactly that | none |
-| G38 | The env claim holds only with a caveat, because `CURSOR_DATA_DIR` is set at launch and not in the base constants | `cursor-agent` | `src/env.rs:110-118`; `README.md:34-37` | documentation gap | Wrong as a caveat. The README says "the two names Hydra sets itself", which are the containment marker and `CURSOR_DATA_DIR`, `src/run.rs:543`, `582`. At `d264867` the claim failed for G1's reason instead; since `fad1b98` it holds, and `codex` checked it there, with the fair note that allowlisting proxy variables does not inspect their contents | none |
+| G38 | The env claim holds only with a caveat, because `CURSOR_DATA_DIR` is set at launch and not in the base constants | `cursor-agent` | `src/env.rs:110-118`; `README.md:34-37` | documentation gap | Wrong as a caveat. The README says "the two names Hydra sets itself", which are the containment marker and `CURSOR_DATA_DIR`, `src/run.rs:543`, `582`. At `15deace` the claim failed for G1's reason instead; since `7f6a948` it holds, and `codex` checked it there, with the fair note that allowlisting proxy variables does not inspect their contents | none |
 | G39 | External contributors are not told they are the third, ungated population | `cursor-agent` | `CLAUDE.md:178`; `CONTRIBUTING.md:46` | documentation gap | Partly. `CLAUDE.md:178` onward says it at length; `CONTRIBUTING.md` points at `CLAUDE.md` for prose conventions only | small |
 | G40 | The first panel's closing count, "27 of the 33 rows were code with a test", is generous | `claude` | `docs/reviews/2026-09-22-seven-readers-as-a-hiring-panel.md:81-82` | documentation gap | Real. F19 to F21 and F23 to F25 are marked fixed and are documentation edits | small |
 | G41 | The git carve-outs let a run rewrite its checkout's `HEAD` and delete or replace files in the shared object store, and reap commits on whatever branch that `HEAD` names before it checks the name, so "your branch never moves" does not hold | `codex` | `src/policy/mod.rs:625-642`; `src/sandbox.rs:106-112`; `src/reap.rs:374-423`, `478-483`; `SECURITY.md:52-56`; `README.md:25-27`; `tests/spawn.rs:1445-1544` | bug | Real, by reading, not reproduced. `own_write_paths` carves out `.git/worktrees/<run-id>/` whole, which holds that checkout's own `HEAD`, and `.git/objects/`, and `compose` turns both into `allow file-write*`, which covers unlink and overwrite, not only creation. The gate applies the same carve-out. `SECURITY.md` says `HEAD` stays denied; the test, `the_seatbelt_allows_git_add_in_the_worktrees_private_git_directory`, checks only the main `.git/HEAD`. What a hostile `standard` run could do: point its checkout at one of the human's branches, which needs no path spelled and no ref written; then `hydra reap`, running outside any seatbelt, reads that branch name, commits the run's whole tree on top of it, and only afterwards says it is "not the branch Hydra made". The human's branch moves, and a commit whose tree is the run's can silently undo work that landed on that branch after the run started. Separately, the run can delete pack files or loose objects in the human's repository, which content addressing does not prevent. The comment at `reap.rs:414-418` treats committing on a human branch as intended, so the code and the README disagree on purpose | needs a decision, then large: which promise wins is a decision; denying the private `HEAD` and refusing to commit off `hydra/<run-id>` are small; narrowing the object store to creation needs a profile measured under a real `git add` |
@@ -132,10 +132,10 @@ G41 to G49, which is 32. Partly: G10, G13, G14, G16, G22, G24, G26, G27, G31, G3
 11. Wrong: G30, G33, G35, G36, G37 and G38, which is 6. Unconfirmed: none, with the note that G1,
 G41 and G42 are confirmed by reading and not by observing them happen. By cost, over the 43 that are
 real or partly: 25 small, 11 large, 6 need a decision, and G31 needs nothing beyond G17 and G18.
-G1 is done in `fad1b98`, and G2's code is fixed with its test gap still open.
+G1 is done in `7f6a948`, and G2's code is fixed with its test gap still open.
 
 By reader: all 25 findings `claude` raised are real or partly real; the two that moved to partly,
-G10 and G26, moved because of `fad1b98` and because of `codex`. Of the 14 `cursor-agent` raised, 11
+G10 and G26, moved because of `7f6a948` and because of `codex`. Of the 14 `cursor-agent` raised, 11
 are real or partly and 3 are wrong, plus the comparison-table half of G24. Of the 7 `agy` raised, 4
 are real or partly and 3 are wrong. Of the 18 `codex` raised, nine new and nine shared, all 18 are
 real or partly real, and on G26 its half is the right one.
@@ -154,7 +154,7 @@ Where the readers disagree with a "fixed" status:
 F11 was marked fixed because `Provider::version` got the child's allowlist. `claude` points out
 that the same class is open on the main launch path, one file over, G1. The fix went to the probe
 and the pty path next to it kept inheriting. That made F11 fixed as written and the finding behind
-it not fixed, until `fad1b98`. `codex` then found the class a third time: F14 is marked fixed
+it not fixed, until `7f6a948`. `codex` then found the class a third time: F14 is marked fixed
 because admission runs under the seatbelt, and the admission steps still inherit the whole
 environment, G43. The pattern is the finding. Each fix went to the spawn path that was named, and
 nothing audited the other spawn paths for the same mistake.
@@ -190,7 +190,7 @@ F29 was marked fixed by read-denying sibling spawn directories. Nobody disputed 
 found the same door open under `pruned/`, which holds whole records, G6.
 
 F33 was marked "stated, an independent verifier is not built". `claude` agrees it is not fixed and
-adds that commit `6daad9c` describes the verifier as having "rules of its own", which overstates
+adds that commit `a57fd54` describes the verifier as having "rules of its own", which overstates
 it, G18. `codex` calls it fixed with a caveat: the scan decodes and walks keys and escaped strings
 on its own, and still aborts only on the redactor's families. The two readers agree on the facts.
 The scan is independent in what it reads and not in what it looks for, and "independent verifier"
@@ -216,13 +216,13 @@ exit-status branch under the first panel's endorsement of stream-derived outcome
 Forty questions came in, ten from each reader. Deduplicated, twenty-three remain, grouped by
 theme. Nine of `codex`'s ten merged into existing questions, and those questions say so; the tenth,
 on git integrity, is new as question 23 and sits under the security theme, so the numbers there
-skip. Each strong answer below is checked against the code, at `d264867` for the first three
-readers and at `fad1b98` for what `codex` added and for question 9; where a reader's suggested answer was
+skip. Each strong answer below is checked against the code, at `15deace` for the first three
+readers and at `7f6a948` for what `codex` added and for question 9; where a reader's suggested answer was
 wrong about the code, the correction is in the answer.
 
 The top five, re-picked across all four readers, are 23, 6, 9, 18 and 22. The rule is still the
 question a reviewer who reads the code will hit first, and the fourth reader moved it. Questions
-23 and 6 are about defects that are open at `fad1b98`, G41 and G42. A reviewer who finds either
+23 and 6 are about defects that are open at `7f6a948`, G41 and G42. A reviewer who finds either
 before the candidate has said it will not ask a friendly version. Question 9 stays although G1 is
 fixed, because `SECURITY.md` now discloses it with dates, the disclosure invites the question, and
 G43 is the same class still open. Question 18 was asked independently by the two readers who read
@@ -352,11 +352,11 @@ down in the repository already, and neither is about something broken.
 ### Security model and its limits
 
 9. Top five. "Show me how you know a recorded `claude` child cannot see `GEMINI_API_KEY`." Raised
-   by `claude`, prompted by `src/pty.rs:79-82`. `codex`, reading `fad1b98`, asks the follow-up:
+   by `claude`, prompted by `src/pty.rs:79-82`. `codex`, reading `7f6a948`, asks the follow-up:
    "The environment builder's tests were green while recorded children inherited the whole shell.
    Where would you put the regression test, and which launch paths remain different?" Prompted by
    `SECURITY.md:79-88`, `src/pty.rs:115-123`, `src/watch.rs:146-167` and
-   `src/rungs/evolve.rs:584-599`. At `d264867` the true answer was that it could, G1. At `fad1b98` a
+   `src/rungs/evolve.rs:584-599`. At `15deace` the true answer was that it could, G1. At `7f6a948` a
    strong answer tells it as a story with a date. `portable-pty`'s `CommandBuilder::new` copies the
    caller's environment, the watcher had inherited the launcher's, and `open` only added and
    overrode, so every recorded run before build 88 got the shell's whole environment while the
@@ -547,7 +547,7 @@ under question 23.
     `codex` put reservations under `spawn/`, the session's Opus reviewer saw that reap would delete
     the lock, and a subagent moved them to `reservations/`, pinned by
     `tests/cleanup.rs::a_sweep_leaves_pending_reservations_alone`; later the session found
-    `seed_tree` copying reservations into worktrees, fixed in `e734038`. On 87, the ticket's own
+    `seed_tree` copying reservations into worktrees, fixed in `4d68533`. On 87, the ticket's own
     item 3 was wrong twice, and after two review rounds the first real `codex` launch still found
     every launch refused, because no test goes through `run::inject_skills`, G2. The candidate
     should say what they now ask a reviewing agent to check, and separate what they judged from
@@ -566,7 +566,7 @@ None of the forty questions fell outside the themes above.
 The union of the four lists plus the fixes the findings imply, ranked by how much each would hurt
 if a reviewer found it first. Items the readers proposed that I dropped are at the end.
 
-1. Done in `fad1b98`: G1. `src/pty.rs` clears the environment, `tests/pty_tee.rs` watches the
+1. Done in `7f6a948`: G1. `src/pty.rs` clears the environment, `tests/pty_tee.rs` watches the
    child, and `SECURITY.md` states the exposure with its dates.
 2. Needs a decision, then large, and first among what is open because it breaks a sentence on the
    README's first screen: G41. Decide whether reap may ever commit on a branch Hydra did not make.
@@ -631,7 +631,7 @@ Dropped: `agy`'s "fix the concurrency cap to use a lock file", done in build 81,
 ## Method
 
 Read in full: the four reviews, `task-base.txt`, `RUNS.md`, and the first panel's consolidated
-report. Then, for each finding, the cited lines at `d264867` in this repository:
+report. Then, for each finding, the cited lines at `15deace` in this repository:
 `src/pty.rs:60-130`; `src/watch.rs:95-165`; the locked `portable-pty-0.9.0` `cmdbuilder.rs` around
 `get_base_env`, `new` and `as_command`; `src/run.rs:405-450`, `580-650`, `820-875`, `980-1000`,
 `1215-1232`, `1260-1280`; `src/sandbox.rs:40-137`; `src/policy/mod.rs:570-590` and `1320-1350`;
@@ -648,12 +648,12 @@ at `45-56`, `134-142`, `238-246`, `2050-2062`, `2100-2108`, `2160-2175`, `2690-2
 `docs/harness-spec.md:718-730`; `tests/corpus/README.md:10-22`; `CONTRIBUTING.md` by grep; and
 the outcomes of build tickets 81 and 87. I ran `frontier.py build`, counted the map tickets by
 `Status:` line, grepped for every `env_clear` and every `inject_skills` caller, and read the
-subjects of commits `6daad9c` and `40f9983`.
+subjects of commits `a57fd54` and `09d4a3a`.
 
 The fourth reader, `codex`, arrived after the rest of this file was written. Its first attempt,
 run `01a0cc9d-8f15`, ran out of credits partway with no report; the second, run `01a0cd3e-50ea`,
-finished at 7.4M tokens, and `RUNS.md` has both ids. It read `fad1b98`, as its own method says, so
-its rows were checked there. For G41 to G49 and the rows the G1 fix moved I read, at `fad1b98`:
+finished at 7.4M tokens, and `RUNS.md` has both ids. It read `7f6a948`, as its own method says, so
+its rows were checked there. For G41 to G49 and the rows the G1 fix moved I read, at `7f6a948`:
 `src/policy/mod.rs:585-660`; `src/sandbox.rs:70-140`; `src/reap.rs:340-483`; `src/worktree.rs:96-116`;
 `tests/spawn.rs:1445-1544`; `src/rungs/evolve.rs:120-290`, `397-430`, `440-470`, `511-545`,
 `555-600`, `940-1010`; `src/rungs/review.rs:1-40`; `src/live.rs:320-405`; `src/interactive.rs:265-320`;
@@ -662,10 +662,10 @@ its rows were checked there. For G41 to G49 and the rows the G1 fix moved I read
 `src/normalize/mod.rs:600-642`; `src/policy/replay.rs:195-240`; `src/skills/mod.rs:440-470`;
 `src/export.rs:330-372`; `tests/corpus/` whole; `README.md:18-30`, `180-192`, `200-250`;
 `SECURITY.md:20-92`, `128-142`; `IMPLEMENTATION.md:3030-3065`, `3368-3395`, `3735-3749`; build
-ticket 87's `## What` and 81's outcome lines 36-42; and the diff of `fad1b98` itself, including the
-new test in `tests/pty_tee.rs`. `fad1b98` added two lines to `IMPLEMENTATION.md` near line 300 and
+ticket 87's `## What` and 81's outcome lines 36-42; and the diff of `7f6a948` itself, including the
+new test in `tests/pty_tee.rs`. `7f6a948` added two lines to `IMPLEMENTATION.md` near line 300 and
 ten to `SECURITY.md` near line 79, so rows G1 to G40 that cite those files below those points are
-off by that much at `fad1b98`; I left their `d264867` numbers as checked.
+off by that much at `7f6a948`; I left their `15deace` numbers as checked.
 
 Not done: I did not run the suite, build the binary or launch a provider, so G1 is confirmed by
 reading both sides of the call and not by observing a child's environment. The same holds for

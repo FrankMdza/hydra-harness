@@ -1,6 +1,6 @@
 # Four readers as a hiring panel, fourth round, 2026-09-24
 
-Reviewed commit `ca2020f`. The third panel (`docs/reviews/2026-09-24-four-readers-third-panel.md`, findings H1 to H48) closed into build tickets 97 to 106 and 112; map tickets 75 to 77 and build tickets 108 to 111 arrived after it and were unread by prior panels. No tests or builds were run in this review; claims were checked by reading cited lines only.
+Reviewed commit `85df6f6`. The third panel (`docs/reviews/2026-09-24-four-readers-third-panel.md`, findings H1 to H48) closed into build tickets 97 to 106 and 112; map tickets 75 to 77 and build tickets 108 to 111 arrived after it and were unread by prior panels. No tests or builds were run in this review; claims were checked by reading cited lines only.
 
 ## Verdict
 
@@ -145,7 +145,7 @@ Resume line: yes, as "designed orchestration mode with append-only goal log and 
 
 **Read in full:** `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, third panel review (first 200 lines plus findings table), build tickets 97 to 100, 103, 105, 106, 112 to 114, map issues 75 and 110, `src/outcome.rs`, `src/env.rs`, `src/watch.rs` (detach and env sections), `src/export.rs` (open path and redaction), `integrations/puppets/README.md`, `integrations/puppets/puppets.py` (fold, approvals, launch refusal), `integrations/puppets/tests/test_puppets.py` (first 150 lines), `tests/normalize.rs` (corpus walk), `tests/gate.rs` (bypass pins), `tests/harvest.rs` (112 tests).
 
-**Read by range / grep:** `IMPLEMENTATION.md` sections via heading grep (Deriving an outcome, Git since 95, Master of Puppets, Rung two, concurrency cap, Choices); `src/run.rs` (preflight, containment, compose_child_env); `src/worktree.rs` (git env, import objects); `src/policy/table.rs`, `gate.py` (header and path logic); `src/sandbox.rs`; `src/live.rs` (reserve); `src/reap.rs` (branch refusal, inject holdback); `src/provider/codex.rs`; `src/normalize/cursor.rs`; `src/rungs/evolve.rs` (may_edit, admission); `src/policy/replay.rs`; `src/skills/mod.rs`; `src/paths.rs`; `tests/corpus/mod.rs`; `tests/drift.rs`; `.scratch/hydra/map.md` (Decisions list); `git log --oneline 2e03429..ca2020f`.
+**Read by range / grep:** `IMPLEMENTATION.md` sections via heading grep (Deriving an outcome, Git since 95, Master of Puppets, Rung two, concurrency cap, Choices); `src/run.rs` (preflight, containment, compose_child_env); `src/worktree.rs` (git env, import objects); `src/policy/table.rs`, `gate.py` (header and path logic); `src/sandbox.rs`; `src/live.rs` (reserve); `src/reap.rs` (branch refusal, inject holdback); `src/provider/codex.rs`; `src/normalize/cursor.rs`; `src/rungs/evolve.rs` (may_edit, admission); `src/policy/replay.rs`; `src/skills/mod.rs`; `src/paths.rs`; `tests/corpus/mod.rs`; `tests/drift.rs`; `.scratch/hydra/map.md` (Decisions list); `git log --oneline 59f57bf..85df6f6`.
 
 **Skimmed:** `CLAUDE.md` (layout index), harness spec and run-record-contract (not full sections 6, 7, 9, 15 as instructed; relied on IMPLEMENTATION and SECURITY cross-refs where time-bound), third panel review remainder (second panel recheck, before publishing), build tickets 101, 102, 104, 107 to 111, 115, map issues 72 to 77, `integrations/puppets/sheet.py`, `src/rungs/review.rs`, `tests/cleanup.rs`, `tests/record_contract.rs`, `tests/git_config.rs`, `tests/status.rs` (by citation only).
 

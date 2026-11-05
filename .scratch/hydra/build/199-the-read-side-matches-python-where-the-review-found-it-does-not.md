@@ -6,11 +6,11 @@ Blocked by: 197
 
 ## What
 
-A read-only review by `codex` (gpt-6-astra) on 2026-09-30 of build 193 (`f465e4d`) found no gap
+A read-only review by `codex` (gpt-6-astra) on 2026-09-30 of build 193 (`dceb144`) found no gap
 in `locked_update`'s lock, and ten places where `crates/puppets` and `puppets.py` give different
 output on the same log, each probed against `python3`. It also found three ways the differential
 test can pass on unequal outcomes. Map 90 asks for identical output, and 194 builds the writers on
-this code, so these close first. Line numbers are as of `f465e4d`; build 197 moved some.
+this code, so these close first. Line numbers are as of `dceb144`; build 197 moved some.
 
 ## Do
 
@@ -57,7 +57,7 @@ test where the item is about the comparator itself), shown failing before the ch
     returns `UnterminatedLog`. Decode before deciding, and fail as Python does. Python decodes in
     buffered chunks, so say in the report what happens on a file larger than one chunk.
 
-A second review by `codex` on 2026-10-01, of build 197 (`58d4b4d`), found these. They change the
+A second review by `codex` on 2026-10-01, of build 197 (`69132ad`), found these. They change the
 Python and the Rust together, as 197 did, with tests in `integrations/puppets/tests/` and inputs
 in the differential test.
 

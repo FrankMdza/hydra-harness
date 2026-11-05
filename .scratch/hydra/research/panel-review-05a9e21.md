@@ -1,10 +1,10 @@
-# Review panel on 2e99a25..05a9e21
+# Review panel on 37525dc..3f5e6a8
 
 You are one seat on a four-seat review panel. Read only. Do not edit, create or delete any file, and do not commit. Your seat name is in your task line.
 
 ## What changed
 
-Run `git log --oneline 2e99a25..05a9e21` and `git diff 2e99a25..05a9e21 -- src tests .github SECURITY.md IMPLEMENTATION.md`. Three build tickets:
+Run `git log --oneline 37525dc..3f5e6a8` and `git diff 37525dc..3f5e6a8 -- src tests .github SECURITY.md IMPLEMENTATION.md`. Three build tickets:
 
 - 362, `src/policy/gate.py` and `tests/gate.rs`: the `git push` floor reads `push.default` and `remote.<name>.push` from the repository config when a push names no refspec.
 - 363, `src/rungs/evolve.rs` and `.github/workflows/ci.yml`: admission never runs proposer code bare on Linux, and Linux CI runs `sandbox::tests::`.

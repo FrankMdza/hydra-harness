@@ -2,7 +2,7 @@
 
 1. Explicit null inputs escape the new object check
 
-src/policy/gate.py:743 treats an absent tool_input and an explicit JSON null identically. Under permissive, {"tool_name":"Task","tool_input":null} is allowed. Likewise, agy's {"toolCall":{"name":"wait","args":null}} is allowed because src/policy/gate.py:679 forwards null into the same branch. This contradicts the requested present-but-not-object refusal and the new explanation at src/policy/gate.py:676. These were also allowed at 0c91055, so this is incomplete hardening, not a widened permission.
+src/policy/gate.py:743 treats an absent tool_input and an explicit JSON null identically. Under permissive, {"tool_name":"Task","tool_input":null} is allowed. Likewise, agy's {"toolCall":{"name":"wait","args":null}} is allowed because src/policy/gate.py:679 forwards null into the same branch. This contradicts the requested present-but-not-object refusal and the new explanation at src/policy/gate.py:676. These were also allowed at cf328b3, so this is incomplete hardening, not a widened permission.
 
 Fix: distinguish absence from null using membership or a sentinel. Preserve missing agy args as an absent field or default them to {}, while retaining explicit null for rejection. Test null, booleans, numbers, strings and arrays, alongside missing fields.
 
@@ -22,7 +22,7 @@ Questions with no findings
 
 Question 1: No newly refused legitimate provider payload found. The fixtures at tests/corpus/mod.rs:239, :315, :332 and :504 agree with the dialect branches at src/policy/gate.py:666 and :673. Codex uses the Claude hook dialect (src/provider/codex.rs:159). The added fetch floor is an intended restriction.
 
-Question 2: No previously denied payload now allowed found. Comparing evaluate and as_tool_call against 0c91055, previous envelope reinterpretations are either preserved for their own dialect or refused; the other decision changes add denials (src/policy/gate.py:726, :746, :849).
+Question 2: No previously denied payload now allowed found. Comparing evaluate and as_tool_call against cf328b3, previous envelope reinterpretations are either preserved for their own dialect or refused; the other decision changes add denials (src/policy/gate.py:726, :746, :849).
 
 Question 3: No new payload-triggered exception escaping the live answer path found. JSON parsing retains its error handling (src/policy/gate.py:1023), evaluation retains its exception guard (:960), and batch environment mutation is absent from main_single (:1033).
 

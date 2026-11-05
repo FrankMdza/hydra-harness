@@ -6,8 +6,8 @@ Blocked by:
 
 ## What
 
-A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of builds 179 (`eb8b55e`), 180
-(`e881eea`) and 192 (`244a6f9`) found five defects, two of them secrets that still reach the
+A read-only review by `cursor-agent` (grok-4.7-high) on 2026-10-01 of builds 179 (`a34526d`), 180
+(`9748119`) and 192 (`0989ec4`) found five defects, two of them secrets that still reach the
 screen. It confirmed the rest: the older mascot frames are byte-identical, `index.json` names
 every frame, ids that repeat pair in order, and the cut never splits a masked value.
 

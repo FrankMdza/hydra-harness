@@ -1,8 +1,8 @@
 # Four readers as a hiring panel, fourth round, 2026-09-24
 
-Reviewed commit `ca2020f` on 2026-09-24. Build tickets 113 to 120 under `.scratch/hydra/build/` record what the session closed the same afternoon; map tickets 78 to 80 are open grillings for the human.
+Reviewed commit `85df6f6` on 2026-09-24. Build tickets 113 to 120 under `.scratch/hydra/build/` record what the session closed the same afternoon; map tickets 78 to 80 are open grillings for the human.
 
-Three readers, `claude`, `cursor-agent` and `agy`, reviewed `ca2020f`. The brief was the third panel's with three changes: each reader is the hiring manager and names an interview level; a section "Master of Puppets, read cold"; and the question whether a corpus walk that goes red on vendor drift is the design working or a suite that goes red whenever a vendor ships. I checked their findings against the code and against those tickets' Outcomes before writing this file.
+Three readers, `claude`, `cursor-agent` and `agy`, reviewed `85df6f6`. The brief was the third panel's with three changes: each reader is the hiring manager and names an interview level; a section "Master of Puppets, read cold"; and the question whether a corpus walk that goes red on vendor drift is the design working or a suite that goes red whenever a vendor ships. I checked their findings against the code and against those tickets' Outcomes before writing this file.
 
 The fourth seat, `codex`, was launched three times and never wrote a report. Run 01a0d3e1-56f2 at 14:45 UTC died at 118 record lines on its usage limit; 01a0d483-b756 at 17:43 UTC stopped at 35 lines; the limit now reads "try again at Sep 27th, 2026 11:04 PM". Its partial text on the first attempt is not a review: it said the third panel's security repairs were substantive, that the documents understated the object-import repair while overstating ticket 112's interactive failure handling, and that marking the new Cursor tool "unhooked" would classify the gap rather than enforce a policy on it. I treat that as a fragment, not a fourth verdict. The `cursor-agent` seat was tried first on `claude-opus-5-thinking-high`, which came back `rate_limited` in six record lines (Cursor's premium allowance resets 2026-09-29), then on Composer 2.5.
 
@@ -15,7 +15,7 @@ The fourth seat, `codex`, was launched three times and never wrote a report. Run
 | `agy` | Gemini 3.1 Pro | advance to technical interview | mid-level systems or security | The prose reads mature on isolation and threat modeling, but its Method says it skipped `src/` and `tests/`, and nine of its "Before publishing" items restate third-panel findings that build tickets 97 to 105 had already closed. | 1,811 words, 60 citations, skimmed by string search; Method names no Rust file it opened; 0.85M tokens |
 | `codex` | GPT, via the Codex CLI | no verdict | n/a | Three launches, 118 and 35 record lines, no report; the first fragment agrees the security repairs were real and questions whether an unhooked row is the right fix for Cursor drift. | 118 and 35 record lines, no report |
 
-All three readers who finished advanced the candidate. The level stayed mid-level across the board, as in the third panel, and again the readers who leave room above it tie that room to ownership in the interview, not to the code alone. The panel is carried by `claude`, as before. It found the two bugs the session verified (ticket 112's derived outcome and the puppets checkout class), the design smell build 113 surfaced and map 79 now owns, and the corpus-walk question map 80 carries. The `cursor-agent` review is careful where it looked and added nothing the session checked beyond what overlaps the Opus report, except the authorship-table denominator, which was real at `ca2020f` and is fixed in build 119. The `agy` review repeated H38, H3, H39, H47, H41 and H1 as open; each was closed by build tickets 97 to 106. Weight it the way both earlier panels did for the reader who did not open the Rust.
+All three readers who finished advanced the candidate. The level stayed mid-level across the board, as in the third panel, and again the readers who leave room above it tie that room to ownership in the interview, not to the code alone. The panel is carried by `claude`, as before. It found the two bugs the session verified (ticket 112's derived outcome and the puppets checkout class), the design smell build 113 surfaced and map 79 now owns, and the corpus-walk question map 80 carries. The `cursor-agent` review is careful where it looked and added nothing the session checked beyond what overlaps the Opus report, except the authorship-table denominator, which was real at `85df6f6` and is fixed in build 119. The `agy` review repeated H38, H3, H39, H47, H41 and H1 as open; each was closed by build tickets 97 to 106. Weight it the way both earlier panels did for the reader who did not open the Rust.
 
 ## Findings
 
@@ -55,11 +55,11 @@ By reader:
 
 - `claude` raised or touched 20 distinct findings. None is wrong. I12 is partly closed; I13 and I14 remain the largest open items after the afternoon's builds.
 - `cursor-agent` raised 12 that overlap heavily with `claude`. I10 is wrong. It added nothing the session verified beyond I11 and the shared third-panel recheck.
-- `agy` raised eight weaknesses that are almost all third-panel repeats, wrong at `ca2020f`. Its Method says it skipped `src/` and `tests/`.
+- `agy` raised eight weaknesses that are almost all third-panel repeats, wrong at `85df6f6`. Its Method says it skipped `src/` and `tests/`.
 
 ## The third panel, rechecked
 
-The third panel's H1 to H48 and build tickets 97 to 106 were the baseline. Here is what each finished reader said about the fixes, and what I found at `ca2020f` and after tickets 113 to 120.
+The third panel's H1 to H48 and build tickets 97 to 106 were the baseline. Here is what each finished reader said about the fixes, and what I found at `85df6f6` and after tickets 113 to 120.
 
 | Finding | `claude` | `cursor-agent` | `agy` | Checked |
 |---|---|---|---|---|
@@ -86,7 +86,7 @@ Both `claude` and `cursor-agent` read `integrations/puppets/puppets.py` cold. `a
 
 `cursor-agent` read the same file as orchestration outside the gate: table and launch approvals work (`test_puppets.py:117-150`), but until build 110 lands a `standard` run can shell-write goal logs (I23), and build 111's judged plan step is still open. It would put a narrower resume line: approval-gated launcher, not production supervisor.
 
-They agree the fold is real and the security boundary was incomplete at `ca2020f`. They disagree on resume weight and on how much build 118 plus an open 110 closes the story.
+They agree the fold is real and the security boundary was incomplete at `85df6f6`. They disagree on resume weight and on how much build 118 plus an open 110 closes the story.
 
 ## Interview question bank
 

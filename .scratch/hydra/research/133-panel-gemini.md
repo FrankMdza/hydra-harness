@@ -12,9 +12,9 @@ Third, codex capability table drift. In src/policy/table.rs lines 395 to 401, CO
 
 Fourth, divergence in secret redaction lists. In src/export.rs lines 625 to 638, redact_secrets matches twelve pattern entries, plus OpenAI keys at line 676. In contrast, src/record/secrets.rs lines 11 to 17 scans only five classes.
 
-Fifth, protected config counts. CLAUDE.md line 203 previously stated five config files. Commit ae65acd updated it to six, aligning with SECURITY.md line 68 and harness spec 15.1.
+Fifth, protected config counts. CLAUDE.md line 203 previously stated five config files. Commit 4fe258f updated it to six, aligning with SECURITY.md line 68 and harness spec 15.1.
 
-Sixth, stale admission documentation. Commit 6bbfee1 amended admission comments in src/mcp.rs. However, protected config config/mcp.md lines 41 to 42 still asserts that mcp_call is granted by permissive alone.
+Sixth, stale admission documentation. Commit f1a4787 amended admission comments in src/mcp.rs. However, protected config config/mcp.md lines 41 to 42 still asserts that mcp_call is granted by permissive alone.
 
 Seventh, apprentice attempt diversity. In crates/apprentice/src/attempt.rs line 89, temperature is hardcoded to 0, confirming that diverse attempts per task cannot currently be sampled.
 

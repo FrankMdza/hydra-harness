@@ -44,4 +44,4 @@ the panel of four offered the patch, the first offerable patch in ten passes. Pa
 was blocked at admission by a corpus test whose selector the proposer's own record matched; the
 selector is fixed in the same change. `rungs-spec.md`, `IMPLEMENTATION.md` and `README.md` say
 four judges and ten passes.
-The human merged the panel's patch as commit 24cade6 the same day, the first through rung two.
+The human merged the panel's patch as commit e0c782b the same day, the first through rung two.

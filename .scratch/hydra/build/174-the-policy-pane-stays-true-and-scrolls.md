@@ -6,7 +6,7 @@ Blocked by: 172
 
 ## What
 
-A read-only review by `codex` on 2026-09-30 of build 171 (`b7493bd`) found two defects in the
+A read-only review by `codex` on 2026-09-30 of build 171 (`b01ef00`) found two defects in the
 cockpit's policy pane, from reading the code:
 
 1. **A stale `current`.** `src/cockpit/app.rs` near line 292, compared near line 654: the pane

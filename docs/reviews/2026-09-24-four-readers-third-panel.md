@@ -1,15 +1,15 @@
 # Four readers as a hiring panel, third round, 2026-09-23
 
-Reviewed commit `2e03429`, and `04740db` for the `codex` reader, which has the same source; published on 2026-09-24 as written then.
+Reviewed commit `59f57bf`, and `76d61e9` for the `codex` reader, which has the same source; published on 2026-09-24 as written then.
 Build tickets 97 to 106 under `.scratch/hydra/build/` record what was fixed, and build ticket 112 what is still open.
 
-Three readers, `claude`, `cursor-agent` and `agy`, reviewed `2e03429`, and their 37 findings, H1 to
+Three readers, `claude`, `cursor-agent` and `agy`, reviewed `59f57bf`, and their 37 findings, H1 to
 H37, were checked there first in `verified-three.md`. The fourth, `codex`, launched at 18:35 after
-its usage limit reset. By then master was `04740db`, and its worktree's `base_tree` is `04740db`'s
-tree plus the untracked `pendintes_hydra.md`. Its review says `2e03429` because the brief did. The
-two commits differ only in five lines of build ticket 92's Outcome, which since `04740db` admits
+its usage limit reset. By then master was `76d61e9`, and its worktree's `base_tree` is `76d61e9`'s
+tree plus the untracked `pendintes_hydra.md`. Its review says `59f57bf` because the brief did. The
+two commits differ only in five lines of build ticket 92's Outcome, which since `76d61e9` admits
 that `phase_spawn` is 163 lines. That is probably why `codex` is the one reader who did not raise
-H6. No source file differs, so its rows H38 to H48 were checked at `04740db` against the same code.
+H6. No source file differs, so its rows H38 to H48 were checked at `76d61e9` against the same code.
 
 `codex` brought eleven new findings and repeated eight. None of its nineteen was wrong. Two of the
 eleven I reproduced outside Hydra: the case-insensitive alias behind H41, and the decoy hook
@@ -75,8 +75,8 @@ the `claude` and `codex` columns again.
 
 Every weakness, red flag, "does not hold" claim, caveated or unfixed second-panel verdict and
 before-publishing item across the four reviews, deduplicated. H1 to H37 are the rows of
-`verified-three.md`, checked at `2e03429`, with `codex` added to the raisers where it said the same
-thing. H38 to H48 are the rows only `codex` raised, checked at `04740db`, which has the same source.
+`verified-three.md`, checked at `59f57bf`, with `codex` added to the raisers where it said the same
+thing. H38 to H48 are the rows only `codex` raised, checked at `76d61e9`, which has the same source.
 Status is real, partly, wrong or unconfirmed. "Measured" means someone ran something, and the
 Method section says what. Everything else was checked by reading the cited lines. Cost is small
 (under an hour, no decision), large, or needs a decision (a map ticket). New means no G row of the
@@ -89,7 +89,7 @@ second panel covers it. Repeat names the G row.
 | H3 | The watcher that owns the pty keeps the launching shell's whole environment, readable with `ps -E`; the first sentence of `SECURITY.md` promises no shell credential reaches the agent | `claude`, `cursor-agent` | `src/watch.rs:103-134`, `17-20`; `src/sandbox.rs:79`; `SECURITY.md:5-7` | Real, measured on the host side: `ps -Eww` read a same-uid sleeper's planted variable on macOS 26.2. `detach` never calls `env_clear`. The human's own terminals expose the same keys, so clearing the watcher alone would not make the sentence true | New | Small for the sentence; large for a watcher started from `env_clear` with a test that reads its environment |
 | H4 | A `codex` run that hits its quota derives `failed`, and rung one learns from `failed` | `claude` | `src/normalize/codex.rs:177-186`; `src/outcome.rs:74-79`, `233-241` | Real, measured on record `01a0cfdb-e5c3`, which `hydra show` prints as `failed`, `derived`. `turn.failed` appears nowhere in `src/` or `tests/`, and unknown frame types are dropped with no `Finding::Limit` | New | Small |
 | H5 | Git that Hydra runs outside the seatbelt still reads a run-writable `~/.gitconfig` and a user-owned system config; `SECURITY.md` calls it "the same class as `~/.zshrc`", but reap runs it | `claude`, `cursor-agent`, `codex` | `src/worktree.rs:127-142`, `227-247`; `SECURITY.md:79-82` | Real. `CheckoutGit::command` sets neither `GIT_CONFIG_GLOBAL` nor `GIT_CONFIG_NOSYSTEM`, and the system config here is `/opt/homebrew/etc/gitconfig`, owned by `frank`. `codex` adds that hooks off is not filters off | New as a finding; build 95's outcome names it | Small; the `git` binary on `PATH` is H2's decision |
-| H6 | Ticket 92's done-when says no function in `src/run.rs` is over 150 lines; `phase_spawn` is 163 | `claude`, `cursor-agent` | `src/run.rs:1182-1344`; `.scratch/hydra/build/92-*.md:36` | Real, measured. `phase_handoff` is 149, not 150 as `cursor-agent` said. `04740db` corrected the ticket's Outcome after the panel; the function is unchanged | New | Small; the ticket half is done |
+| H6 | Ticket 92's done-when says no function in `src/run.rs` is over 150 lines; `phase_spawn` is 163 | `claude`, `cursor-agent` | `src/run.rs:1182-1344`; `.scratch/hydra/build/92-*.md:36` | Real, measured. `phase_handoff` is 149, not 150 as `cursor-agent` said. `76d61e9` corrected the ticket's Outcome after the panel; the function is unchanged | New | Small; the ticket half is done |
 | H7 | The authorship table stops at 94 "except 80 and 92"; 92, 95 and 96 are resolved and agent-written | `claude` | `README.md:222-245` | Real. `frontier.py build` prints 96 of 96 | Repeat of the G13 class | Small |
 | H8 | "73 decision tickets, all resolved", while map ticket 74 is open | `claude`, `codex` | `README.md:255` | Real. `74-*.md:4` is `Status: open` | Repeat of the G7 class | Small |
 | H9 | "23 test files"; there are 24 | `claude`, `codex` | `README.md:210`; `CLAUDE.md:102` | Real. `tests/launch_phases.rs` is the new one | New | Small |
@@ -97,7 +97,7 @@ second panel covers it. Repeat names the G row.
 | H11 | The harness spec says the floor "applies on all three providers" | `claude` | `docs/harness-spec.md:819` | Real. Four are routed | Repeat, G11 | Small |
 | H12 | The provider version table has no `codex` row | `claude` | `IMPLEMENTATION.md:86-92` | Real | New | Small |
 | H13 | The second panel's findings, which tickets 88 to 96 cite by G id, are not in the repository | `claude` | `.scratch/hydra/build/93-*.md:9-11`; `docs/reviews/` | Real | New | Small |
-| H14 | CI walks an empty corpus | `claude`, `codex` | `README.md:209-213`; `tests/record_contract.rs:577-605` | Real, and the README says so. The red local walk `claude` mentions is history, fixed in `963bdd4` | Repeat, G21 | Large, a fixture corpus |
+| H14 | CI walks an empty corpus | `claude`, `codex` | `README.md:209-213`; `tests/record_contract.rs:577-605` | Real, and the README says so. The red local walk `claude` mentions is history, fixed in `3210668` | Repeat, G21 | Large, a fixture corpus |
 | H15 | A `codex` hook that dies fails open, and no automated test drives it | `claude`, `cursor-agent`, `agy`, `codex` | `src/provider/codex.rs:37-40`; `SECURITY.md:155-166` | Real and admitted. The G19 half is closed, `tests/gate.rs:2401` drives the catch-all | Repeat, G20 | Large |
 | H16 | The admission canary test calls `set_var` in a unit-test binary, and its SAFETY comment names the wrong invariant | `claude` | `src/rungs/evolve.rs:1540-1571`; `CONTRIBUTING.md:27` | Real. Rung two's own admission runs a threaded `cargo test` (`evolve.rs:773`), so the race is live there | New | Small |
 | H17 | `CheckoutGit::for_run` takes a `_layout` it never reads | `claude` | `src/worktree.rs:72-77` | Real | New | Small |
@@ -218,7 +218,7 @@ exists", and the refactor drew the line one function late.
 
 G3, the 737-line `run`. `claude` says fixed with a caveat and `cursor-agent` docks a point for it.
 Checked: `run()` is 26 lines and `refuse` takes a struct, but `phase_spawn` is 163 lines against
-the ticket's 150 (H6). `04740db` corrected the Outcome after the panel, so the ticket is honest now
+the ticket's 150 (H6). `76d61e9` corrected the Outcome after the panel, so the ticket is honest now
 and the code is unchanged.
 
 G2, G6, G19 and G23. The readers who checked them say fixed, and they are. G2 is the unit test
@@ -241,12 +241,12 @@ one call over.
 
 Forty questions came in, ten from each reader. Deduplicated, twenty remain. One was dropped:
 `agy`'s eighth asks why the cap has no lock, and it has had one since build 81 (H23). Each strong
-answer below was checked against the code at `2e03429`. Where a reader's premise or suggested
+answer below was checked against the code at `59f57bf`. Where a reader's premise or suggested
 answer was wrong, the correction is in the answer.
 
 The top five are 1, 2, 3, 4 and 5. The rule is the same as in round two: the question a reviewer
 who reads the code will hit first, and the answer that costs the most if the candidate has not
-thought about it. Four of the five are about findings open at `04740db`. The fifth is about how
+thought about it. Four of the five are about findings open at `76d61e9`. The fifth is about how
 the candidate checks what agents claim, the thing every reader raised.
 
 ### Top five
@@ -308,7 +308,7 @@ the candidate checks what agents claim, the thing every reader raised.
    Who checked that, and pick one agent diff you rejected: what was wrong, and could you rebuild
    why without the ticket?" Merged from `claude`'s third, `codex`'s seventh, `cursor-agent`'s
    eighth and `agy`'s tenth. Motivated by `.scratch/hydra/build/92-*.md:36` and the Outcomes of
-   89, 90 and 92. A strong answer admits the miss, and that the panel caught it and `04740db`
+   89, 90 and 92. A strong answer admits the miss, and that the panel caught it and `76d61e9`
    corrected the Outcome. It proposes a mechanical check for a mechanical claim: clippy's
    `too_many_lines` with a threshold in `clippy.toml`, run in CI. Then something specific: on 89,
    the parent read from the checkout's `HEAD` after admission; on 90, an agent test that drove a
@@ -515,12 +515,12 @@ build 81 (H23); `cursor-agent`'s "add `may_edit` to contract 5.5", already at li
 Read in full: the four third-panel reviews, `verified-three.md`, the brief `task-base.txt`,
 `RUNS.md`, `launch-codex-later.sh`, `run-*.sh`, and the second panel's consolidated report for its
 format and its G rows. H1 to H37 and their measurements are carried over from `verified-three.md`,
-checked at `2e03429` by a session that edited nothing. Its measurements were: the cargo `runner`
+checked at `59f57bf` by a session that edited nothing. Its measurements were: the cargo `runner`
 forge in a scratch crate under `env -i`; `ps -Eww` and `sysctl(KERN_PROCARGS2)` reading a same-uid
 environment on macOS 26.2; `hydra show 01a0cfdb-e5c3` deriving `failed`; function lengths in
 `src/run.rs`; and the lock in `live::reserve`.
 
-For H38 to H48 I read, at `04740db`: `src/run.rs:390-495`, `747-810`, `960-980`, `1060-1100`,
+For H38 to H48 I read, at `76d61e9`: `src/run.rs:390-495`, `747-810`, `960-980`, `1060-1100`,
 `515-535`; `src/worktree.rs:111-142`, `150-175`, `340-420`, `520-640`; `src/skills/mod.rs:420-500`;
 `src/reap.rs:300-355`, `425-442`; `src/rungs/evolve.rs:170-290`, `405-460`, `755-860`,
 `1250-1285`; `src/export.rs:300-375`, `537-580`, `680-700` and line 4;
@@ -532,8 +532,8 @@ For H38 to H48 I read, at `04740db`: `src/run.rs:390-495`, `747-810`, `960-980`,
 and 92 in the parts cited. I grepped for every `env_clear`, every `login_status` caller, every
 `admit(` caller, the validator's provider handling, and `IMPLEMENTATION.md` for any stated replay
 residual. I ran `hydra show` on the four reader runs for outcome and tokens, read line 0 of the
-`codex` run for its `base_tree`, and compared that tree's ticket 92 blob with `2e03429` and
-`04740db`.
+`codex` run for its `base_tree`, and compared that tree's ticket 92 blob with `59f57bf` and
+`76d61e9`.
 
 Two things were measured by me, both in the scratchpad and neither through Hydra. For H41: this
 Mac's data volume is case-insensitive APFS, and writing `preference.jsonl` replaced the contents of

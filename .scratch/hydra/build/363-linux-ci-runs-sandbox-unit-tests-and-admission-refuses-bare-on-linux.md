@@ -4,7 +4,7 @@ Status: resolved
 
 ## Objective
 
-Close two Linux gaps identified by the review panel on `2e99a25` (`01a17e09-b543-77e3-990c-5f0f95d696aa`):
+Close two Linux gaps identified by the review panel on `37525dc` (`01a17e09-b543-77e3-990c-5f0f95d696aa`):
 1. `.github/workflows/ci.yml` passes `--skip sandbox` on the `ubuntu-latest` job, which skips all 12 pure unit tests in `src/sandbox.rs` (`sandbox::tests::*`), including the new bubblewrap composer and witness tests from builds 318a and 318b.
 2. `src/rungs/evolve.rs` (`run_admission_step`) refuses on Linux when `wraps_launches()` is true, but falls through to `Command::new(bin)` (running proposer code bare) on Linux when `wraps_launches()` is false (`bwrap` absent or user namespaces disabled).
 

@@ -1,6 +1,6 @@
 # 68. An attack corpus, read by Opus against the checkout
 
-Reader: a Claude Code subagent on Opus 5, reading `/Users/USER/hydra` at `d8ac669`, 2026-09-22.
+Reader: a Claude Code subagent on Opus 5, reading `/Users/USER/hydra` at `460e12d`, 2026-09-22.
 
 Method: read `SECURITY.md`, `docs/harness-spec.md` 6.2, 6.6, 7, 8, 9 and 15, `docs/rungs-spec.md` 1,
 2, 4 and 5, both reviews, `src/policy/gate.py`, `src/policy/mod.rs`, `src/sandbox.rs`, `src/env.rs`,

@@ -6,8 +6,8 @@ Blocked by:
 
 ## What
 
-A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of builds 203 (`ba906ef`) and 202
-(`0cfa47f`). It found no panic in the new scans, no URL bypass, and `repair_removed_count` equal
+A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of builds 203 (`85b1522`) and 202
+(`23e971a`). It found no panic in the new scans, no URL bypass, and `repair_removed_count` equal
 to both helpers. Two findings are mechanical and are here. The rest are about what the mask
 should cover at all, which is map ticket 92; do not widen or narrow the patterns in this ticket.
 

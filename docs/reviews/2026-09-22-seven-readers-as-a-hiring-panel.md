@@ -1,6 +1,6 @@
 # Seven readers as a hiring panel
 
-Date: 2026-09-22, on commit 54eb13c. Every finding below is either fixed in the commit that
+Date: 2026-09-22, on commit 5608847. Every finding below is either fixed in the commit that
 publishes this report, held under a ticket number with nothing a reader could use before the fix,
 or a limit `SECURITY.md` now states. The column on the right says which.
 

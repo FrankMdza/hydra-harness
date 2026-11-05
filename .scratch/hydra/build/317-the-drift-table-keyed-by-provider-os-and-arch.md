@@ -45,8 +45,8 @@ your file tool and not with shell heredocs, and the test suite is green inside a
 
 `MEASURED_VERSIONS` is a table of `MeasuredVersion { provider, os, arch, version, measured_on,
 probe }`. The four rows are macos aarch64: `claude` 2.1.268 and `cursor-agent` 2026.09.18-9a7762b
-and `agy` 1.2.8 on 2026-09-22 (`git log -S` on `5c00b28`), `codex` 0.154.0 on 2026-09-21
-(`80b3be6`). `measured_version` looks up `measured_platform()`, which reads `consts::OS` and
+and `agy` 1.2.8 on 2026-09-22 (`git log -S` on `5bbd026`), `codex` 0.154.0 on 2026-09-21
+(`ed33b51`). `measured_version` looks up `measured_platform()`, which reads `consts::OS` and
 `consts::ARCH` unless both `HYDRA_DRIFT_OS` and `HYDRA_DRIFT_ARCH` are set, and returns `None`
 when no row matches. `hydra doctor` then prints `{binary} unmeasured on {os} {arch}; run
 tests/drift.rs there` and does not set `missing`. `tests/doctor.rs::doctor_prints_unmeasured_when_the_platform_has_no_row`

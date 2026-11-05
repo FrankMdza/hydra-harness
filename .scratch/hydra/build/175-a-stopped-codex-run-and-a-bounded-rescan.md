@@ -6,7 +6,7 @@ Blocked by: 173
 
 ## What
 
-A read-only review by `codex` on 2026-09-30 of build 173 (`28224bd`) confirmed its three fixes
+A read-only review by `codex` on 2026-09-30 of build 173 (`539f2b6`) confirmed its three fixes
 and found one defect and three risks, from reading the code:
 
 1. **Defect.** `src/walk.rs`: the `stopped` exemption sat after the `codex` `turn.failed` rule, so

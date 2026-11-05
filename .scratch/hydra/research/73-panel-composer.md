@@ -16,7 +16,7 @@
 
 ## 3. What it breaks or costs
 
-Proposers **cannot add or edit any test** under Option 1; patches arrive without test coverage of their own change, so the human merge must add tests or accept judge-only evidence. **Every new editable area needs a human edit** to `evolve.rs`, which is already protected (`evolve.rs:450`). Past passes that an allowlist would have refused: **`src/paths.rs`** (pass `58fcb71`, 122 lines added), **`src/record/validate.rs`** (`ca5f54b`), and the large rename in `dd0ab72` touching `src/run.rs`, `src/cli.rs`, docs, and `tests/cleanup.rs`. Passes that would still pass: **`src/normalize/*.rs`** (`51357f8`), **`src/provider/codex.rs`** (`5967077`), mostly provider-facing work. Measure whether that split matches what rung two should do before freezing the list.
+Proposers **cannot add or edit any test** under Option 1; patches arrive without test coverage of their own change, so the human merge must add tests or accept judge-only evidence. **Every new editable area needs a human edit** to `evolve.rs`, which is already protected (`evolve.rs:450`). Past passes that an allowlist would have refused: **`src/paths.rs`** (pass `58fcb71`, 122 lines added), **`src/record/validate.rs`** (`f65ac9b`), and the large rename in `dd0ab72` touching `src/run.rs`, `src/cli.rs`, docs, and `tests/cleanup.rs`. Passes that would still pass: **`src/normalize/*.rs`** (`51357f8`), **`src/provider/codex.rs`** (`5967077`), mostly provider-facing work. Measure whether that split matches what rung two should do before freezing the list.
 
 ## 4. What a hostile run or proposer still gains
 

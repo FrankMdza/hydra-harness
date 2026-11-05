@@ -7,7 +7,7 @@ Blocked by:
 ## What
 
 Each is under an hour and needs no decision. Findings from
-`~/.claude/handoffs/2026-09-23-panel/consolidated.md`; line numbers are at `fad1b98`, so search by
+`~/.claude/handoffs/2026-09-23-panel/consolidated.md`; line numbers are at `7f6a948`, so search by
 the name given.
 
 1. **G2, a test through the call site.** Build 87 made every `codex` launch refuse with
@@ -15,7 +15,7 @@ the name given.
    calls `Index::project_scope_without` and `collision::check` directly and nothing calls
    `run::inject_skills` (`src/run.rs` ~1195, `pub(crate)`). Add a test that goes through
    `inject_skills` for `codex` with a scratch store and worktree, the smallest way it can be reached
-   (a unit test in `run.rs`, or making it `pub` behind `#[doc(hidden)]`). Revert `d264867`'s fix
+   (a unit test in `run.rs`, or making it `pub` behind `#[doc(hidden)]`). Revert `15deace`'s fix
    locally and say in the Outcome that the test then fails.
 2. **G6, `pruned/` read-denied.** `sandbox::compose` (`src/sandbox.rs` ~86-105) emits
    `deny file-read*` for the corpus `runs/` and `spawns()`, and nothing for `Layout::pruned()`
@@ -55,7 +55,7 @@ Built by `cursor-agent` on composer-2.5 under `standard`, run 01a0cfa1-507d, 3.1
 fixed by the session after an Opus review.
 
 1. **G2.** `run::tests::inject_skills_does_not_treat_a_codex_copy_as_a_collision_with_itself`
-   goes through `inject_skills` for `codex`; the agent reverted `d264867`'s `project_scope_without`
+   goes through `inject_skills` for `codex`; the agent reverted `15deace`'s `project_scope_without`
    and saw it fail with `skill_collision`. `inject_skills` reads the real home's user roots, so the
    session renamed the probe skill to `hydra-g2-inject-probe`, a name no user root will hold.
 2. **G6.** `sandbox::compose` denies reads of `pruned/`. The session moved the profile-text check

@@ -6,13 +6,13 @@ solved. The panel reads this file, checks the claims against the repo, and recom
 The decisions stay the human's.
 
 Numbers in this file were measured on 2026-10-15 unless a date says otherwise. The repo is at
-`e10c63a` (build 330). The suite on macOS: 1419 tests, 4 skipped, all green.
+`02927a8` (build 330). The suite on macOS: 1419 tests, 4 skipped, all green.
 
 ## Item 1. The Linux CI job is red: 51 tests in 10 test binaries
 
 **Problem.** Build 315 made Hydra compile on Linux and added a `linux` job to
 `.github/workflows/ci.yml` that runs `cargo test --release --workspace --no-fail-fast -- --skip
-sandbox` on `ubuntu-latest`. Its first run, on the push of `e10c63a`, failed in 4 minutes with 51
+sandbox` on `ubuntu-latest`. Its first run, on the push of `02927a8`, failed in 4 minutes with 51
 red tests. The `check` job on macOS stayed green. The failures are not one bug; they are eight
 assumptions the suite makes about the machine it grew up on. Until the job says something true, a
 visitor's first click shows red.

@@ -20,7 +20,7 @@ Undirected passes, with no `--task`, are bounded by the default set. Branch tips
 - Pass 2 touched the three normalizers. Option 1's example set admits it.
 - Pass 5 touched `evolve.rs` and `IMPLEMENTATION.md`. Every option refuses it.
 - Passes 7 and 8 touched `cli.rs`, `main.rs`, `reap.rs`, `show.rs` and a new `resolver.rs`, and pass 7 edited `tests/cleanup.rs`. Option 1 refuses both.
-- Passes 9 and 10 touched `src/cli.rs` and `src/run.rs`. Pass 10 is `24cade6`, the only rung-two patch ever merged. Options 1 and 2 both refuse it.
+- Passes 9 and 10 touched `src/cli.rs` and `src/run.rs`. Pass 10 is `e0c782b`, the only rung-two patch ever merged. Options 1 and 2 both refuse it.
 
 So option 1 admits one of six real patches and refuses the one that landed. Option 4 admits pass 10 once the human names its two files, and ticket 80 refuses pass 7's test edit at admission, which today only `agy`'s judge caught.
 

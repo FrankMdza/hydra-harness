@@ -48,4 +48,4 @@ after a first run (01a0cc2a-f20b, 127k tokens) stopped on an unreadable skill, w
 
 One more thing the ticket did not foresee, found by the session after 79 and 83 ran: on this
 machine `~/hydra` is the checkout, and `reservations/` was not in `.gitignore`, so `seed_tree`
-copied each launcher's own reservation into its worktree. Fixed in `e734038`.
+copied each launcher's own reservation into its worktree. Fixed in `4d68533`.

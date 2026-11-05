@@ -1,10 +1,10 @@
-# Review panel on 05a9e21..435f156
+# Review panel on 3f5e6a8..95e01a9
 
 You are one seat on an adversarial review panel. Read only: do not edit, create or delete a file in the repository, and do not commit. Scratch experiments under `/tmp` are fine. Your seat name is in your task line.
 
 ## What changed
 
-Run `git log --oneline 05a9e21..435f156` and `git diff 05a9e21..435f156 -- src tests SECURITY.md IMPLEMENTATION.md`. Two builds carry map ticket 135, `.scratch/hydra/issues/135-*.md`, whose reasoning is in `.scratch/hydra/research/135-synthesis.md`:
+Run `git log --oneline 3f5e6a8..95e01a9` and `git diff 3f5e6a8..95e01a9 -- src tests SECURITY.md IMPLEMENTATION.md`. Two builds carry map ticket 135, `.scratch/hydra/issues/135-*.md`, whose reasoning is in `.scratch/hydra/research/135-synthesis.md`:
 
 - 366, `src/sandbox.rs`, `src/paths.rs`, `src/reap.rs`, `src/rungs/curate.rs`: under bubblewrap every missing deny path gets a source. `config/` is bound read-only whole, `Layout::ensure()` creates six directories, skill and plugin roots are created empty, a `{}` under the spawn directory is bound over a missing settings file, reap removes an untracked empty or `{}` settings file, and compose refuses by name instead of panicking.
 - 367, `src/worktree.rs` and its callers: before host-side git on a run checkout, `sweep_private` removes every entry of the private git directory except `HEAD`, `commondir`, `gitdir`, `index` and a real `logs` directory, and refuses a non-regular `index`. A live run gets the index check only.

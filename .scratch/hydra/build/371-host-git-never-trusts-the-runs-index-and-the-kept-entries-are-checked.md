@@ -6,7 +6,7 @@ Blocked by: 367
 
 ## Objective
 
-Close what the adversarial review of `05a9e21..435f156` found in build 367's sweep and build 366. Prompt: `.scratch/hydra/research/panel-review-435f156.md`. Seats: GPT `01a17eb3-86c2`, Grok `01a17eb4-20d0`, Flash `01a17eb4-c167`. Read `sweep_private` in `src/worktree.rs` and the 367 Outcome first.
+Close what the adversarial review of `3f5e6a8..95e01a9` found in build 367's sweep and build 366. Prompt: `.scratch/hydra/research/panel-review-435f156.md`. Seats: GPT `01a17eb3-86c2`, Grok `01a17eb4-20d0`, Flash `01a17eb4-c167`. Read `sweep_private` in `src/worktree.rs` and the 367 Outcome first.
 
 ## Findings this ticket closes
 

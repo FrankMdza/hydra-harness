@@ -48,7 +48,7 @@ it starts from a master that holds them; 95 changes how `src/run.rs` calls git a
 
 Four runs. `codex` first, 01a0cfd5-cdda, stopped when the gate refused a command spelling its own
 worktree's absolute path; the task text now says to use relative paths. Its resume, 01a0cfda-7012,
-found `hydra resume` on `codex` broken under the seatbelt, fixed in `3878399`; the next resume,
+found `hydra resume` on `codex` broken under the seatbelt, fixed in `d01d9a0`; the next resume,
 01a0cfdb-e5c3, hit `codex`'s usage limit. `cursor-agent` on composer-2.5 then did the refactor,
 01a0cfdc-ac67, 10.5M tokens, and a second composer run, 01a0cfec-faa6, 2.0M, made the review's fixes.
 

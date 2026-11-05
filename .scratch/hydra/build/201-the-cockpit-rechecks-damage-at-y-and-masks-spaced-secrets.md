@@ -6,8 +6,8 @@ Blocked by:
 
 ## What
 
-A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of builds 198 (`d09d459`) and 200
-(`7c6d4e1`) found six defects, four of them here and two in build 202 in the cockpit. It found none for a BOM, CRLF, duplicate keys or
+A read-only review by `codex` (gpt-6-astra) on 2026-10-01 of builds 198 (`c68b9ae`) and 200
+(`981195e`) found six defects, four of them here and two in build 202 in the cockpit. It found none for a BOM, CRLF, duplicate keys or
 invalid UTF-8, and traced that `repair` brings the table back on the next snapshot.
 
 ## Do
